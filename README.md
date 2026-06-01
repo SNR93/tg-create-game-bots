@@ -1,175 +1,178 @@
 # TG Game Bot Constructor
 
-A browser-based visual node editor for building interactive narrative Telegram bots — branching stories, quests, games — without writing a single line of code.
-
-![Node editor interface](.github/preview.png)
+Браузерный визуальный редактор для создания интерактивных нарративных Telegram-ботов — квесты, игры, разветвлённые истории — без единой строки кода.
 
 ---
 
-## What it is and why
+## Что это и зачем
 
-Most Telegram bot builders are designed for simple Q&A flows or lead funnels. This tool is built for **narrative-driven experiences**: branching storylines, character relationships, inventory systems, achievements, and Telegram Stars monetization.
+Большинство конструкторов Telegram-ботов заточены под простые воронки или FAQ-боты. Этот инструмент создан для **нарративных сценариев**: разветвлённые истории, инвентарь, отношения с персонажами, достижения, монетизация через Telegram Stars.
 
-You draw a graph. The bot plays it.
+Вы рисуете граф — бот его проигрывает.
 
-The editor runs in the browser. The runtime executes scenarios directly inside Telegram. Everything is self-hosted — your data, your server, your rules.
+Редактор работает в браузере. Движок исполняет сценарии напрямую внутри Telegram. Всё разворачивается у вас — ваши данные, ваш сервер, ваши правила.
 
 ---
 
-## Highlights
+## Сильные стороны
 
-### Visual node graph
-Drag, connect, and configure nodes on an infinite canvas powered by React Flow. No YAML, no JSON, no code.
+### Визуальный нод-граф
+Перетаскивайте, соединяйте и настраивайте ноды на бесконечном холсте на базе React Flow. Никакого YAML, JSON или кода.
 
-### Rich node library (20+ types)
-| Category | Nodes |
+### Богатая библиотека нод (20+ типов)
+
+| Категория | Ноды |
 |---|---|
-| Entry points | Global menu (/start), Settings (/settings), Custom commands, Invoke command, Continue story |
-| Messages | Single message, Message chain, Media gallery |
-| Logic | Variable branching, Text condition, Formula, Random |
-| Progression | Variables, Inventory, Relations, Achievements, Checkpoint |
-| Monetization | Telegram Stars purchase, Promocodes |
-| Structure | Subscenario, Return, Comment, Group |
+| Точки входа | Глобальное меню (/start), Настройки (/settings), Свои команды, Вызвать команду, Продолжить историю |
+| Сообщения | Одиночное сообщение, Цепочка сообщений, Медиа-подборка |
+| Логика | Проверка условий, Проверка текста, Расчёт чисел, Случайный выбор |
+| Прогресс | Переменные, Инвентарь, Отношения, Достижения, Контрольная точка |
+| Монетизация | Покупка Telegram Stars, Промокод |
+| Структура | Подсценарий, Возврат, Комментарий, Группа |
 
-### Built-in simulator
-Test the full bot scenario directly in the browser — with a fake Telegram chat UI, variable panel, debug log, and countdown timers for delay nodes. No real bot needed to test.
+### Встроенный симулятор
+Тестируйте полный сценарий прямо в браузере — с имитацией чата Telegram, панелью переменных, журналом отладки и таймерами задержек. Реальный бот для теста не нужен.
 
-### Player admin panel
-Live view and edit of every player's variables, inventory, relations, and achievements. Search, reset, or delete players. View choice logs and analytics.
+### Панель администратора
+Просмотр и редактирование переменных, инвентаря, отношений и достижений каждого игрока в реальном времени. Поиск, сброс, удаление игроков, журнал выборов.
 
-### Version control & backups
-Snapshot the scenario at any point, publish with gradual rollout (e.g. 10% of players get v2), and restore from backup instantly.
+### Версии и резервные копии
+Делайте снимок сценария в любой момент, публикуйте с постепенным выкатом (например, 10% игроков получают v2), мгновенно откатывайтесь из бэкапа.
 
-### Analytics
-Conversion funnel, node visit heatmap, and player choice breakdown — all from the admin panel.
+### Аналитика
+Воронка конверсии, тепловая карта посещений нод, разбивка выборов игроков — всё в панели администратора.
 
-### Telegram Stars monetization
-Create products in the admin panel, place a Purchase node anywhere in the story. Payment is handled entirely by Telegram — no payment provider setup needed.
+### Монетизация через Telegram Stars
+Создавайте товары в панели, размещайте ноду «Покупка» в любом месте истории. Платёж обрабатывает Telegram — никаких платёжных провайдеров.
 
-### Redis-backed sessions
-Player sessions survive backend restarts. State is persisted to Redis and reloaded transparently.
+### Redis-сессии
+Сессии игроков переживают рестарт бэкенда. Состояние сохраняется в Redis и прозрачно восстанавливается.
 
-### Rate-limited Telegram API
-Built-in token-bucket rate limiter (25 req/s) prevents hitting Telegram's API limits during broadcasts or high-traffic moments.
+### Rate limiter для Telegram API
+Встроенный токен-бакет (25 запросов/с) защищает от превышения лимитов Telegram при рассылках и пиковой нагрузке.
 
-### Nginx media delivery
-Uploaded media files (photos, videos, voice) are served directly by nginx — not through Node.js — with 30-day cache headers.
+### Медиа через nginx
+Загруженные файлы (фото, видео, голосовые) раздаёт nginx напрямую, минуя Node.js — с 30-дневным кешированием.
 
-### Self-hosted, Docker-first
-One `docker compose up` command. No external services, no cloud lock-in.
+### Self-hosted, Docker-первый
+Одна команда `docker compose up`. Никаких внешних сервисов, никакой привязки к облаку.
 
 ---
 
-## Stack
+## Стек
 
-| Layer | Technology |
+| Слой | Технология |
 |---|---|
-| Frontend | React 18, Vite, @xyflow/react |
-| Backend | Node.js, Express |
-| Database | PostgreSQL 16 |
-| Sessions | Redis 7 |
-| Web server | nginx (Alpine) |
-| Infrastructure | Docker Compose |
+| Фронтенд | React 18, Vite, @xyflow/react |
+| Бэкенд | Node.js, Express |
+| База данных | PostgreSQL 16 |
+| Сессии | Redis 7 |
+| Веб-сервер | nginx (Alpine) |
+| Инфраструктура | Docker Compose |
 
 ---
 
-## Quick start
+## Быстрый старт
 
-### Requirements
-- Docker and Docker Compose installed
-- Ports 4000 and 4001 available on your machine
+### Требования
+- Docker и Docker Compose (v2+)
+- Свободные порты `4000` и `4001`
 
-### 1. Clone
+### 1. Клонировать
 
 ```bash
 git clone https://github.com/SNR93/tg-create-game-bots.git
 cd tg-create-game-bots
 ```
 
-### 2. Start
+### 2. Запустить
 
 ```bash
 docker compose up -d --build
 ```
 
-This starts four containers: PostgreSQL, Redis, backend API, and nginx frontend.
+Поднимаются четыре контейнера: PostgreSQL, Redis, бэкенд API, nginx-фронтенд.
 
-### 3. Open
+### 3. Открыть
 
 ```
 http://localhost:4000
 ```
 
-### 4. Create a bot
+### 4. Создать бота
 
-1. Click **+ Новый бот**
-2. Build your scenario in the node editor
-3. Press **Ctrl+S** to save
+1. Нажмите **+ Новый бот**
+2. Постройте сценарий в редакторе нод
+3. Сохраните — **Ctrl+S**
 
-### 5. Connect to Telegram
+### 5. Подключить к Telegram
 
-1. Get a token from [@BotFather](https://t.me/BotFather) via `/newbot`
-2. Open **Telegram** panel in the editor toolbar
-3. Paste the token and click **Запустить**
+1. Получите токен у [@BotFather](https://t.me/BotFather) командой `/newbot`
+2. Откройте панель **Telegram** в редакторе
+3. Вставьте токен и нажмите **Запустить**
 
-The bot starts polling immediately. Send `/start` in Telegram to test it.
+Бот начнёт работать немедленно. Напишите `/start` в Telegram, чтобы проверить.
 
 ---
 
-## Public webhook mode (optional)
+## Webhook-режим (для продакшена)
 
-For production deployments with a public domain, set `PUBLIC_BASE_URL` before starting:
+Для развёртывания с публичным доменом установите `PUBLIC_BASE_URL` перед запуском:
 
 ```bash
-PUBLIC_BASE_URL=https://yourdomain.com docker compose up -d
+PUBLIC_BASE_URL=https://ваш-домен.ru docker compose up -d
 ```
 
-The backend will register a Telegram webhook instead of polling.
+Бэкенд зарегистрирует Telegram-вебхук вместо long polling.
 
 ---
 
-## Project structure
+## Структура проекта
 
 ```
 .
 ├── backend/
-│   ├── index.js           # Express API
-│   ├── telegramRuntime.js # Bot execution engine
-│   ├── telegramApi.js     # Telegram HTTP + rate limiter
-│   ├── graphUtils.js      # Graph traversal utilities
-│   ├── sessionStore.js    # Redis session storage
-│   ├── playerStore.js     # Player data (PostgreSQL)
-│   ├── adminStore.js      # Versions, backups, analytics
-│   ├── jobQueue.js        # Scheduled jobs (broadcasts, delays)
-│   ├── telegramLimits.js  # Validation rules
-│   └── database.js        # Schema initialization
+│   ├── index.js            # Express API
+│   ├── telegramRuntime.js  # Движок исполнения сценариев
+│   ├── telegramApi.js      # HTTP-запросы к Telegram + rate limiter
+│   ├── graphUtils.js       # Утилиты обхода графа
+│   ├── sessionStore.js     # Redis-хранилище сессий
+│   ├── playerStore.js      # Данные игроков (PostgreSQL)
+│   ├── adminStore.js       # Версии, бэкапы, аналитика
+│   ├── jobQueue.js         # Очередь задач (рассылки, задержки)
+│   ├── telegramLimits.js   # Правила валидации
+│   └── database.js         # Инициализация схемы БД
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/         # Editor and bot list pages
+│   │   ├── pages/          # Редактор и список ботов
 │   │   ├── components/
-│   │   │   ├── nodes/     # Node visual components
-│   │   │   ├── inspector/ # Node settings panels
-│   │   │   ├── panels/    # Admin, history, node catalog
-│   │   │   └── simulator/ # In-browser bot simulator
-│   │   └── api.js         # Backend API client
+│   │   │   ├── nodes/      # Визуальные компоненты нод
+│   │   │   ├── inspector/  # Панели настроек нод
+│   │   │   ├── panels/     # Админка, история, каталог нод
+│   │   │   └── simulator/  # Встроенный симулятор
+│   │   └── api.js          # Клиент бэкенд-API
 │   └── nginx.conf
 └── docker-compose.yml
 ```
 
 ---
 
-## Configuration
+## Конфигурация
 
-All configuration is done via environment variables in `docker-compose.yml`:
-
-| Variable | Default | Description |
+| Переменная | По умолчанию | Описание |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://tgbot:tgbot@postgres:5432/tgbot` | PostgreSQL connection |
-| `REDIS_URL` | `redis://redis:6379` | Redis connection |
-| `PUBLIC_BASE_URL` | _(empty)_ | Public HTTPS URL for webhook mode |
+| `DATABASE_URL` | `postgresql://tgbot:tgbot@postgres:5432/tgbot` | Подключение к PostgreSQL |
+| `REDIS_URL` | `redis://redis:6379` | Подключение к Redis |
+| `PUBLIC_BASE_URL` | _(пусто)_ | Публичный HTTPS-адрес для webhook-режима |
 
 ---
 
-## License
+## Подробная документация
+
+Полное руководство по всем нодам, настройкам, развёртыванию на сервере и ответы на частые вопросы — в файле [manual_ru.md](manual_ru.md).
+
+---
+
+## Лицензия
 
 MIT
