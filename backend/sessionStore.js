@@ -86,12 +86,20 @@ function createSessionStore(botId) {
     return memoryStore.has(key(chatId));
   }
 
-  function del(chatId) {
+  async function del(chatId) {
     memoryStore.delete(key(chatId));
-    if (redis) redis.del(key(chatId)).catch(() => {});
+    if (redis) {
+      try {
+        await redis.del(key(chatId));
+      } catch {}
+    }
   }
 
-  return { get, set, persist, has, del };
+  function close() {
+    redis?.disconnect();
+  }
+
+  return { get, set, persist, has, del, close };
 }
 
 module.exports = { createSessionStore };

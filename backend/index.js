@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -14,10 +15,19 @@ const app = express();
 const PORT = 3001;
 const BOTS_DIR = path.join(__dirname, 'data', 'bots');
 const MEDIA_DIR = path.join(__dirname, 'data', 'media');
+const AUTH_USERS = {
+  SNR93: '293800',
+  fullxayc: '293800',
+};
+const AUTH_COOKIE = 'tgbot_session';
+const AUTH_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const AUTH_SECRET = process.env.AUTH_SECRET || 'site-create-text-bot-auth-v1';
 const MEDIA_FOLDERS = {
-  photo: 'photos',
-  video: 'videos',
-  voice: 'voices',
+  photo: 'images',
+  image: 'images',
+  video: 'video',
+  circle: 'circle',
+  voice: 'voice',
   audio: 'audio',
   document: 'documents',
 };
@@ -46,12 +56,128 @@ function listBots() {
   const files = fs.readdirSync(BOTS_DIR).filter(f => f.endsWith('.json'));
   return files.map(f => {
     const data = JSON.parse(fs.readFileSync(path.join(BOTS_DIR, f), 'utf-8'));
-    return { id: data.id, name: data.name, updatedAt: data.updatedAt };
-  }).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    return {
+      id: data.id,
+      name: data.name,
+      createdAt: data.createdAt || data.updatedAt,
+      updatedAt: data.updatedAt,
+      createdBy: data.createdBy || 'unknown',
+      comment: data.comment || '',
+    };
+  }).sort((a, b) => new Date(b.createdAt || b.updatedAt) - new Date(a.createdAt || a.updatedAt));
+}
+
+function normalizeBotName(name) {
+  return String(name || '').trim().replace(/\s+/g, ' ');
+}
+
+function findBotByName(name, exceptId = '') {
+  const normalized = normalizeBotName(name).toLocaleLowerCase('ru');
+  if (!normalized) return null;
+  return listBots().find(bot => bot.id !== exceptId && normalizeBotName(bot.name).toLocaleLowerCase('ru') === normalized);
+}
+
+function sanitizeComment(comment) {
+  return String(comment || '').trim().slice(0, 500);
+}
+
+function parseCookies(header = '') {
+  return Object.fromEntries(String(header || '').split(';').map(part => {
+    const index = part.indexOf('=');
+    if (index === -1) return null;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    return key ? [key, decodeURIComponent(value)] : null;
+  }).filter(Boolean));
+}
+
+function signAuthPayload(payload) {
+  return crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('base64url');
+}
+
+function createAuthToken(login) {
+  const payload = Buffer.from(JSON.stringify({
+    login,
+    exp: Math.floor(Date.now() / 1000) + AUTH_MAX_AGE_SECONDS,
+  })).toString('base64url');
+  return `${payload}.${signAuthPayload(payload)}`;
+}
+
+function verifyAuthToken(token) {
+  const [payload, signature] = String(token || '').split('.');
+  if (!payload || !signature) return null;
+  const expected = signAuthPayload(payload);
+  if (signature.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+    if (!data.login || !AUTH_USERS[data.login] || data.exp < Math.floor(Date.now() / 1000)) return null;
+    return data.login;
+  } catch {
+    return null;
+  }
+}
+
+function cookieOptions(req, maxAge = AUTH_MAX_AGE_SECONDS) {
+  const secure = req.secure || req.get('x-forwarded-proto') === 'https';
+  return [
+    `${AUTH_COOKIE}=`,
+    `Max-Age=${maxAge}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    secure ? 'Secure' : '',
+  ].filter(Boolean);
+}
+
+function setAuthCookie(req, res, token) {
+  const parts = cookieOptions(req);
+  parts[0] = `${AUTH_COOKIE}=${encodeURIComponent(token)}`;
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function clearAuthCookie(req, res) {
+  res.setHeader('Set-Cookie', cookieOptions(req, 0).join('; '));
+}
+
+function requireAuth(req, res, next) {
+  const header = req.get('authorization') || '';
+  const bearerToken = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  const cookieToken = parseCookies(req.get('cookie'))[AUTH_COOKIE];
+  const login = verifyAuthToken(bearerToken) || verifyAuthToken(cookieToken);
+  if (!login) return res.status(401).json({ error: 'Требуется авторизация' });
+  req.user = { login };
+  next();
+}
+
+function createBotTemplate(template = 'empty') {
+  const node = (type, x, y, data = {}) => {
+    const id = uuidv4();
+    return { id, type, position: { x, y }, data: { ...data, nodeId: id.slice(0, 7) } };
+  };
+  const edge = (source, target, sourceHandle = 'continue') => ({
+    id: uuidv4(), source: source.id, target: target.id, sourceHandle, targetHandle: 'in',
+  });
+  const menu = node('menuNode', 160, 120, { title: 'Глобальное меню' });
+  if (template === 'empty') return { nodes: [menu], edges: [] };
+
+  const continuation = node('continueStoryNode', 440, 80, { title: 'Продолжить историю' });
+  const greeting = node('simpleMessageNode', 440, 260, {
+    type: 'text',
+    text: template === 'quiz' ? 'Ответьте на вопрос:' : template === 'shop' ? 'Добро пожаловать в магазин.' : 'Добро пожаловать в историю!',
+  });
+  const keyboard = node('keyboardNode', 720, 260, {
+    title: template === 'quiz' ? 'Ответы' : 'Выбор',
+    buttons: [
+      { id: uuidv4(), label: template === 'shop' ? 'Открыть магазин' : 'Продолжить', type: 'callback' },
+      { id: uuidv4(), label: template === 'quiz' ? 'Другой ответ' : 'В меню', type: 'callback' },
+    ],
+  });
+  return { nodes: [menu, continuation, greeting, keyboard], edges: [edge(menu, continuation), edge(greeting, keyboard)] };
 }
 
 // POST /api/bots/:id/media/:type — store uploaded content outside bot JSON
-app.post('/api/bots/:id/media/:type', express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
+app.post('/api/bots/:id/media/:type', requireAuth, express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
   try {
     const botId = safeSegment(req.params.id);
     const folder = MEDIA_FOLDERS[req.params.type];
@@ -71,8 +197,8 @@ app.post('/api/bots/:id/media/:type', express.raw({ type: '*/*', limit: '50mb' }
     fs.mkdirSync(targetDir, { recursive: true });
     const storedPath = path.join(targetDir, storedName);
     fs.writeFileSync(storedPath, req.body);
-    const duration = ['video', 'voice', 'audio'].includes(req.params.type) ? probeDuration(storedPath) : null;
-    if (req.params.type === 'video' && duration === null) {
+    const duration = ['video', 'circle', 'voice', 'audio'].includes(req.params.type) ? probeDuration(storedPath) : null;
+    if ((req.params.type === 'video' || req.params.type === 'circle') && duration === null) {
       fs.unlinkSync(storedPath);
       return res.status(400).json({ error: 'Не удалось прочитать видео. Загрузите корректный MP4-файл.' });
     }
@@ -103,12 +229,34 @@ app.get('/api/health', asyncRoute(async (req, res) => {
   res.json({ ok: true, database: 'connected' });
 }));
 
+app.post('/api/auth/login', (req, res) => {
+  const login = String(req.body?.login || '').trim();
+  const password = String(req.body?.password || '');
+  if (!AUTH_USERS[login] || AUTH_USERS[login] !== password) {
+    return res.status(401).json({ error: 'Неверный логин или пароль' });
+  }
+  const token = createAuthToken(login);
+  setAuthCookie(req, res, token);
+  res.json({ token, user: { login } });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  clearAuthCookie(req, res);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json({ user: req.user });
+});
+
 app.post('/api/telegram/webhook/:id/:secret', asyncRoute(async (req, res) => {
   const accepted = await telegramRuntime.handleWebhook(req.params.id, req.params.secret, req.body);
   res.status(accepted ? 200 : 404).json({ ok: accepted });
 }));
 
 // GET /api/bots — list all bots
+app.use('/api', requireAuth);
+
 app.get('/api/bots', (req, res) => {
   try {
     res.json(listBots());
@@ -122,21 +270,19 @@ app.post('/api/bots', (req, res) => {
   try {
     const id = uuidv4();
     const now = new Date().toISOString();
-    const menuId = uuidv4();
+    const name = normalizeBotName(req.body.name);
+    if (!name) return res.status(400).json({ error: 'Укажите название бота' });
+    if (findBotByName(name)) return res.status(409).json({ error: `Бот с названием "${name}" уже существует` });
+    const template = createBotTemplate('empty');
     const bot = {
       id,
-      name: req.body.name || 'Новый бот',
+      name,
       createdAt: now,
       updatedAt: now,
-      nodes: [
-        {
-          id: menuId,
-          type: 'menuNode',
-          position: { x: 250, y: 80 },
-          data: { title: 'Глобальное меню', nodeId: menuId.slice(0, 7) },
-        },
-      ],
-      edges: [],
+      createdBy: req.user.login,
+      comment: sanitizeComment(req.body.comment),
+      nodes: template.nodes,
+      edges: template.edges,
       snapshots: [],
     };
     fs.writeFileSync(getBotPath(id), JSON.stringify(bot, null, 2));
@@ -159,12 +305,44 @@ app.put('/api/bots/:id', (req, res) => {
     const p = getBotPath(req.params.id);
     if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
     const existing = JSON.parse(fs.readFileSync(p, 'utf-8'));
-    const updated = { ...existing, ...req.body, id: existing.id, updatedAt: new Date().toISOString() };
+    const requestedName = req.body.name === undefined ? existing.name : normalizeBotName(req.body.name);
+    if (!requestedName) return res.status(400).json({ error: 'Укажите название бота' });
+    if (findBotByName(requestedName, existing.id)) return res.status(409).json({ error: `Бот с названием "${requestedName}" уже существует` });
+    const updated = {
+      ...existing,
+      ...req.body,
+      id: existing.id,
+      name: requestedName,
+      createdAt: existing.createdAt || existing.updatedAt || new Date().toISOString(),
+      createdBy: existing.createdBy || req.user.login,
+      comment: req.body.comment === undefined ? existing.comment || '' : sanitizeComment(req.body.comment),
+      updatedAt: new Date().toISOString(),
+    };
     const validationErrors = validateScenario(updated, url => telegramRuntime.localMediaPath(url));
     if (validationErrors.length) return res.status(400).json({ error: validationErrors.join('\n') });
     fs.writeFileSync(p, JSON.stringify(updated, null, 2));
     telegramRuntime.refreshCommands(req.params.id).catch(error => console.error('Telegram commands refresh failed:', error.message));
     res.json(updated);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/bots/:id/comment', (req, res) => {
+  try {
+    const p = getBotPath(req.params.id);
+    if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
+    const existing = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    const updated = { ...existing, comment: sanitizeComment(req.body.comment), updatedAt: new Date().toISOString() };
+    fs.writeFileSync(p, JSON.stringify(updated, null, 2));
+    res.json({
+      id: updated.id,
+      name: updated.name,
+      createdAt: updated.createdAt || updated.updatedAt,
+      updatedAt: updated.updatedAt,
+      createdBy: updated.createdBy || 'unknown',
+      comment: updated.comment || '',
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -245,7 +423,8 @@ app.post('/api/bots/:id/admin/players/:playerId/reset', asyncRoute(async (req, r
 }));
 
 app.delete('/api/bots/:id/admin/players/:playerId', asyncRoute(async (req, res) => {
-  await playerStore.deletePlayer(req.params.id, req.params.playerId);
+  const player = await playerStore.deletePlayer(req.params.id, req.params.playerId);
+  await telegramRuntime.removePlayerSession(req.params.id, player?.chat_id);
   res.json({ ok: true });
 }));
 
@@ -317,6 +496,25 @@ app.put('/api/bots/:id/admin/products/:productKey', asyncRoute(async (req, res) 
 
 app.delete('/api/bots/:id/admin/products/:productKey', asyncRoute(async (req, res) => {
   await adminStore.deleteProduct(req.params.id, req.params.productKey);
+  res.json({ ok: true });
+}));
+
+// Global (bot-level) variables
+app.get('/api/bots/:id/admin/globals', asyncRoute(async (req, res) => {
+  if (!botExists(req.params.id)) return res.status(404).json({ error: 'Bot not found' });
+  res.json(await playerStore.listBotVariables(req.params.id));
+}));
+
+app.put('/api/bots/:id/admin/globals/:name', asyncRoute(async (req, res) => {
+  if (!botExists(req.params.id)) return res.status(404).json({ error: 'Bot not found' });
+  const type = req.body.type || 'number';
+  if (!['boolean', 'number', 'text'].includes(type)) return res.status(400).json({ error: 'Unsupported type' });
+  await playerStore.setBotVariable(req.params.id, req.params.name, type, req.body.value);
+  res.json(await playerStore.listBotVariables(req.params.id));
+}));
+
+app.delete('/api/bots/:id/admin/globals/:name', asyncRoute(async (req, res) => {
+  await playerStore.deleteBotVariable(req.params.id, req.params.name);
   res.json({ ok: true });
 }));
 
@@ -396,13 +594,33 @@ initDatabase()
     startJobWorker({
       broadcast: async job => {
         const playerIds = job.payload.playerIds || [];
-        const result = await pool.query(`
-          SELECT chat_id FROM players WHERE bot_id = $1 AND chat_id IS NOT NULL
-            AND ($2::text[] = '{}' OR telegram_user_id = ANY($2::text[]))
-        `, [job.bot_id, playerIds]);
-        await telegramRuntime.broadcast(job.bot_id, result.rows.map(row => row.chat_id), job.payload.text || '');
+        const filter = job.payload.filter;
+        let query = `SELECT p.chat_id FROM players p WHERE p.bot_id = $1 AND p.chat_id IS NOT NULL AND ($2::text[] = '{}' OR p.telegram_user_id = ANY($2::text[]))`;
+        const params = [job.bot_id, playerIds];
+        const source = filter?.source || (filter?.varName ? 'variable' : '');
+        const key = filter?.key || filter?.varName;
+        const operator = ['=', '!=', '>', '<', '>=', '<='].includes(filter?.operator) ? filter.operator : '=';
+        if (source === 'variable' && key) {
+          params.push(key, String(filter.value ?? ''));
+          query += ` AND EXISTS (SELECT 1 FROM player_variables v WHERE v.bot_id = p.bot_id AND v.telegram_user_id = p.telegram_user_id AND v.var_name = $${params.length - 1} AND (v.value #>> '{}') ${operator} $${params.length})`;
+        }
+        if (source === 'inventory' && key) {
+          params.push(key, Number(filter.value) || 0);
+          query += ` AND EXISTS (SELECT 1 FROM player_inventory i WHERE i.bot_id = p.bot_id AND i.telegram_user_id = p.telegram_user_id AND i.item_key = $${params.length - 1} AND i.quantity ${operator} $${params.length})`;
+        }
+        if (source === 'achievement' && key) {
+          params.push(key);
+          query += ` AND ${filter.operator === 'not_unlocked' ? 'NOT ' : ''}EXISTS (SELECT 1 FROM player_achievements a WHERE a.bot_id = p.bot_id AND a.telegram_user_id = p.telegram_user_id AND a.achievement_key = $${params.length})`;
+        }
+        if ((+job.payload.inactiveDays || 0) > 0) {
+          params.push(+job.payload.inactiveDays);
+          query += ` AND p.last_seen_at < NOW() - ($${params.length} * INTERVAL '1 day')`;
+        }
+        const result = await pool.query(query, params);
+        await telegramRuntime.broadcast(job.bot_id, result.rows.map(r => r.chat_id), job.payload.text || '');
       },
       scenario_resume: async job => telegramRuntime.resumeScenario(job.bot_id, job.payload),
+      keyboard_timeout: async job => telegramRuntime.handleKeyboardTimeout(job.bot_id, job.payload),
     });
     app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
   })

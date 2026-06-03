@@ -179,12 +179,23 @@ async function initDatabase() {
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       completed_at TIMESTAMPTZ,
-      FOREIGN KEY (bot_id, telegram_user_id) REFERENCES players(bot_id, telegram_user_id) ON DELETE CASCADE,
       FOREIGN KEY (bot_id, product_key) REFERENCES store_products(bot_id, product_key)
+    );
+
+    ALTER TABLE purchases DROP CONSTRAINT IF EXISTS purchases_bot_id_telegram_user_id_fkey;
+
+    CREATE TABLE IF NOT EXISTS bot_variables (
+      bot_id TEXT NOT NULL,
+      var_name TEXT NOT NULL,
+      var_type TEXT NOT NULL CHECK (var_type IN ('boolean', 'number', 'text')),
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (bot_id, var_name)
     );
 
     CREATE INDEX IF NOT EXISTS idx_players_bot_updated ON players(bot_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_choices_player ON player_choices(bot_id, telegram_user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_analytics_bot_type ON analytics_events(bot_id, event_type, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_analytics_bot_created ON analytics_events(bot_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_jobs_pending ON scheduled_jobs(status, run_at);
     CREATE INDEX IF NOT EXISTS idx_purchases_player ON purchases(bot_id, telegram_user_id, created_at DESC);

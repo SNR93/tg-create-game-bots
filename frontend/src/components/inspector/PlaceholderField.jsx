@@ -34,7 +34,7 @@ function renderHighlightedText(value, placeholders) {
   return parts;
 }
 
-export default function PlaceholderField({ as = 'input', value = '', onChange, style, maxLength, ...props }) {
+export default function PlaceholderField({ as = 'input', value = '', onChange, style, maxLength, showCounter = false, formatting = false, ...props }) {
   const placeholders = useContext(PlaceholderContext);
   const inputRef = useRef(null);
   const mirrorRef = useRef(null);
@@ -83,6 +83,39 @@ export default function PlaceholderField({ as = 'input', value = '', onChange, s
     });
   }
 
+  function replaceSelection(nextValue, selectionStart, selectionEnd, nextCaretStart, nextCaretEnd = nextCaretStart) {
+    if (Number.isFinite(maxLength) && nextValue.length > maxLength) return;
+    onChange({ target: { value: nextValue } });
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange?.(nextCaretStart, nextCaretEnd);
+    });
+  }
+
+  function wrapSelection(before, after = before) {
+    const input = inputRef.current;
+    if (!input) return;
+    const start = input.selectionStart ?? value.length;
+    const end = input.selectionEnd ?? value.length;
+    const selected = value.slice(start, end) || 'текст';
+    const next = `${value.slice(0, start)}${before}${selected}${after}${value.slice(end)}`;
+    replaceSelection(next, start, end, start + before.length, start + before.length + selected.length);
+  }
+
+  function applyFormat(kind) {
+    if (kind === 'bold') return wrapSelection('<b>', '</b>');
+    if (kind === 'italic') return wrapSelection('<i>', '</i>');
+    if (kind === 'underline') return wrapSelection('<u>', '</u>');
+    if (kind === 'strike') return wrapSelection('<s>', '</s>');
+    if (kind === 'spoiler') return wrapSelection('<tg-spoiler>', '</tg-spoiler>');
+    if (kind === 'code') return wrapSelection('<code>', '</code>');
+    if (kind === 'link') {
+      const href = prompt('URL ссылки:', 'https://');
+      if (!href) return;
+      return wrapSelection(`<a href="${href.replace(/"/g, '&quot;')}">`, '</a>');
+    }
+  }
+
   function syncScroll(event) {
     if (mirrorRef.current) {
       mirrorRef.current.scrollTop = event.currentTarget.scrollTop;
@@ -107,6 +140,17 @@ export default function PlaceholderField({ as = 'input', value = '', onChange, s
 
   return (
     <div style={s.group}>
+      {formatting && (
+        <div style={s.toolbar}>
+          <button type="button" style={s.tool} title="Жирный" onMouseDown={event => event.preventDefault()} onClick={() => applyFormat('bold')}>B</button>
+          <button type="button" style={s.tool} title="Курсив" onMouseDown={event => event.preventDefault()} onClick={() => applyFormat('italic')}><i>I</i></button>
+          <button type="button" style={s.tool} title="Подчеркнуть" onMouseDown={event => event.preventDefault()} onClick={() => applyFormat('underline')}><u>U</u></button>
+          <button type="button" style={s.tool} title="Зачеркнуть" onMouseDown={event => event.preventDefault()} onClick={() => applyFormat('strike')}><s>S</s></button>
+          <button type="button" style={s.tool} title="Спойлер" onMouseDown={event => event.preventDefault()} onClick={() => applyFormat('spoiler')}>||</button>
+          <button type="button" style={s.tool} title="Код" onMouseDown={event => event.preventDefault()} onClick={() => applyFormat('code')}>{'<>'}</button>
+          <button type="button" style={s.toolWide} title="Ссылка" onMouseDown={event => event.preventDefault()} onClick={() => applyFormat('link')}>Ссылка</button>
+        </div>
+      )}
       <div style={{ ...s.wrap, background: style?.background }}>
         <div ref={mirrorRef} aria-hidden="true" style={mirrorStyle}>
           {renderHighlightedText(value, placeholders)}
@@ -145,7 +189,7 @@ export default function PlaceholderField({ as = 'input', value = '', onChange, s
           </div>
         )}
       </div>
-      <CharacterCounter value={value} maxLength={maxLength} />
+      {showCounter && <CharacterCounter value={value} maxLength={maxLength} />}
     </div>
   );
 }
@@ -153,8 +197,11 @@ export default function PlaceholderField({ as = 'input', value = '', onChange, s
 const s = {
   group: { width: '100%' },
   wrap: { position: 'relative', width: '100%' },
+  toolbar: { display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 },
+  tool: { width: 28, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#1e2030', border: '1px solid #3a3f55', borderRadius: 5, color: '#cbd5e1', fontSize: 12, cursor: 'pointer', padding: 0 },
+  toolWide: { height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#1e2030', border: '1px solid #3a3f55', borderRadius: 5, color: '#cbd5e1', fontSize: 12, cursor: 'pointer', padding: '0 8px' },
   mirror: { position: 'absolute', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none', color: '#e2e8f0', borderColor: 'transparent', background: 'transparent' },
-  dropdown: { position: 'absolute', zIndex: 100, top: '100%', left: 0, right: 0, maxHeight: 180, overflowY: 'auto', background: '#1a1c2a', border: '1px solid #3a3f55', borderRadius: 6, boxShadow: '0 8px 20px rgba(0,0,0,0.45)' },
+  dropdown: { position: 'absolute', zIndex: 100, top: '100%', left: 0, right: 0, minWidth: 280, maxHeight: 320, overflowY: 'auto', background: '#1a1c2a', border: '1px solid #3a3f55', borderRadius: 6, boxShadow: '0 8px 20px rgba(0,0,0,0.45)' },
   item: { display: 'block', width: '100%', padding: '7px 9px', textAlign: 'left', background: 'transparent', border: 'none', color: '#a78bfa', fontFamily: 'monospace', fontSize: 12, cursor: 'pointer' },
   empty: { padding: '7px 9px', color: '#718096', fontSize: 12 },
 };

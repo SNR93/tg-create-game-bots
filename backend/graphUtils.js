@@ -15,11 +15,7 @@ function getNext(edges, nodes, source, sourceHandle) {
 
 /**
  * Interpolate {{varName}} placeholders.
- * Missing variables keep their placeholder text ({{varName}}) so the admin can
- * immediately see which variable is absent instead of getting a silent empty string.
- * @param {string} text
- * @param {Object} vars  - player variable map { name: { value, type } }
- * @param {Function} [onMissing] - called with the variable name when not found
+ * Missing variables keep their placeholder text so admins can spot the problem instantly.
  */
 function interpolate(text, vars, onMissing) {
   return String(text || '').replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, name) => {
@@ -27,8 +23,80 @@ function interpolate(text, vars, onMissing) {
     const variable = vars?.[key];
     if (variable !== undefined) return String(variable.value ?? '');
     if (onMissing) onMissing(key);
-    return match; // keep {{varName}} visible instead of empty string
+    return match;
   });
+}
+
+function telegramVariables(player, chatId) {
+  const id = String(player?.telegram_user_id || player?.id || chatId || '');
+  const username = String(player?.username || '').replace(/^@+/, '');
+  const firstName = String(player?.first_name || '');
+  const lastName = String(player?.last_name || '');
+  const fullName = [firstName, lastName].filter(Boolean).join(' ');
+  return {
+    'telegram.id': { type: 'text', value: id },
+    'telegram.chat_id': { type: 'text', value: String(player?.chat_id || chatId || '') },
+    'telegram.username': { type: 'text', value: username },
+    'telegram.nickname': { type: 'text', value: username ? `@${username}` : '' },
+    'telegram.first_name': { type: 'text', value: firstName },
+    'telegram.last_name': { type: 'text', value: lastName },
+    'telegram.full_name': { type: 'text', value: fullName },
+    'telegram.mention': { type: 'text', value: username ? `@${username}` : (fullName || id) },
+  };
+}
+
+/**
+ * Evaluate a single branch condition against the full session state.
+ * Supports sources: variable, inventory, relation, achievement, global.
+ *
+ * condition = { source, key, operator, value }
+ * session   = { vars, inventory, relations, achievementList, globalVars }
+ */
+function branchMatches(condition, session) {
+  const { source = 'variable', key, varName, operator, value } = condition;
+  const resolvedKey = key || varName || '';
+  if (!resolvedKey) return false;
+
+  let actual;
+
+  if (source === 'inventory') {
+    actual = session.inventory?.[resolvedKey] ?? 0;
+  } else if (source === 'relation') {
+    actual = session.relations?.[resolvedKey] ?? 0;
+  } else if (source === 'achievement') {
+    const has = (session.achievementList || []).includes(resolvedKey);
+    if (operator === 'has')     return has;
+    if (operator === 'not_has') return !has;
+    return has;
+  } else if (source === 'global') {
+    const gv = session.globalVars?.[resolvedKey];
+    if (!gv) return false;
+    actual = gv.value;
+  } else {
+    // default: player variable
+    const variable = session.vars?.[resolvedKey];
+    if (!variable) return false;
+    actual = variable.value;
+  }
+
+  switch (operator) {
+    case '==': return String(actual) === String(value) || actual == value;
+    case '!=': return String(actual) !== String(value) && actual != value;
+    case '>':  return +actual >  +value;
+    case '<':  return +actual <  +value;
+    case '>=': return +actual >= +value;
+    case '<=': return +actual <= +value;
+    default:   return false;
+  }
+}
+
+/**
+ * Evaluate whether a keyboard button should be visible.
+ * Returns true if no condition is configured or it evaluates to true.
+ */
+function evaluateButtonCondition(condition, session) {
+  if (!condition?.enabled) return true;
+  return branchMatches({ source: condition.source, key: condition.key, operator: condition.operator, value: condition.value }, session);
 }
 
 function inventoryMap(items) {
@@ -43,7 +111,7 @@ function cleanCommand(value) {
   return String(value || '').trim().replace(/^\/+/, '').toLowerCase();
 }
 
-const RESERVED_COMMANDS = new Set(['start', 'settings', 'promo', 'shop', 'ref']);
+const RESERVED_COMMANDS = new Set(['start', 'menu', 'settings', 'promo', 'shop', 'ref']);
 
 function commandNames(node) {
   return [node.data.command, ...String(node.data.aliases || '').split(',')]
@@ -67,51 +135,15 @@ function setCommandArgs(session, args) {
   });
 }
 
-function branchMatches(condition, vars) {
-  const variable = vars[condition.varName];
-  if (!variable) return false;
-  const value = variable.value;
-  const target = condition.value;
-  switch (condition.operator) {
-    case '==': return String(value) === String(target) || value === target;
-    case '!=': return String(value) !== String(target) && value !== target;
-    case '>':  return +value > +target;
-    case '<':  return +value < +target;
-    case '>=': return +value >= +target;
-    case '<=': return +value <= +target;
-    default:   return false;
-  }
-}
+const ENTRY_TYPES = new Set(['menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode', 'commentNode', 'groupNode']);
 
-function inputMatches(data, input) {
-  const type = data.conditionType || 'Текст содержит';
-  const value = data.caseSensitive ? (data.condition || '') : (data.condition || '').toLowerCase();
-  const text = data.caseSensitive ? input : input.toLowerCase();
-  if (type === 'Текст равен')       return text === value;
-  if (type === 'Текст содержит')    return text.includes(value);
-  if (type === 'Начинается с')      return text.startsWith(value);
-  if (type === 'Заканчивается на')  return text.endsWith(value);
-  if (type === 'Любой ввод')        return true;
-  return false;
-}
-
-const ENTRY_TYPES = new Set(['menuNode', 'settingsNode', 'customCommandNode', 'commentNode', 'groupNode']);
-
-/**
- * Find the story root node for a new player session.
- * - Legacy bots: returns the startNode for backward compatibility.
- * - New bots without startNode: returns the first story node that has no
- *   incoming work-edges and is not a command/structural entry type.
- */
 function findStoryRoot(bot) {
-  const startNode = bot.nodes.find(n => n.type === 'startNode');
-  if (startNode) return startNode;
   const hasIncoming = new Set(bot.edges.filter(e => !e.data?.isComment).map(e => e.target));
   return bot.nodes.find(n => !ENTRY_TYPES.has(n.type) && !hasIncoming.has(n.id)) || null;
 }
 
 module.exports = {
-  getNext, interpolate, inventoryMap, relationMap,
-  cleanCommand, commandNames, parseCommand, setCommandArgs,
-  branchMatches, inputMatches, RESERVED_COMMANDS, findStoryRoot,
+  getNext, interpolate, branchMatches, evaluateButtonCondition,
+  inventoryMap, relationMap, cleanCommand, commandNames,
+  parseCommand, setCommandArgs, telegramVariables, RESERVED_COMMANDS, findStoryRoot,
 };

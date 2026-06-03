@@ -33,3 +33,24 @@ input, textarea {
 .react-flow__minimap:active {
   cursor: grabbing;
 }
+
+.node-expanded > div > div {
+  max-width: 560px !important;
+  min-width: 360px !important;
+}
+
+.node-expanded [style*="white-space: nowrap"] {
+  white-space: pre-wrap !important;
+  overflow: visible !important;
+}
+
+.node-search-highlight {
+  outline: 2px dashed #ef4444 !important;
+  outline-offset: 6px !important;
+}
+
+.tg-spoiler {
+  color: transparent;
+  background: #718096;
+  border-radius: 3px;
+}

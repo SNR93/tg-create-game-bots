@@ -4,6 +4,7 @@ import {
   createBotBackup,
   createBotJob,
   createBotVersion,
+  deleteBotGlobal,
   deleteBotPlayer,
   deleteBotPlayerInventoryItem,
   deleteBotPlayerVariable,
@@ -14,6 +15,7 @@ import {
   deleteBotRole,
   getBotAnalytics,
   getBotPlayer,
+  listBotGlobals,
   listBotPlayers,
   listBotBackups,
   listBotJobs,
@@ -24,6 +26,7 @@ import {
   publishBotVersion,
   resetBotPlayer,
   restoreBotBackup,
+  setBotGlobal,
   setBotPlayerInventoryItem,
   setBotPlayerAchievement,
   setBotPlayerRelation,
@@ -123,14 +126,21 @@ export default function AdminPanel({ botId, onClose }) {
         {error && <div style={s.error}>{error}</div>}
         <div style={s.tabs}>
           {[
-            ['players', 'Игроки'], ['promocodes', 'Промокоды'], ['products', 'Магазин Stars'],
+            ['players', 'Игроки'], ['globals', 'Глобальные'], ['promocodes', 'Промокоды'], ['products', 'Магазин Stars'],
             ['analytics', 'Аналитика'], ['versions', 'Версии'], ['backups', 'Резервные копии'], ['jobs', 'Очередь'], ['roles', 'Роли'],
           ].map(([key, label]) => <button key={key} style={{ ...s.tab, ...(tab === key ? s.tabActive : {}) }} onClick={() => setTab(key)}>{label}</button>)}
         </div>
 
         {tab === 'players' ? <div style={s.body}>
           <div style={s.sidebar}>
-            <input style={s.search} value={query} placeholder="Поиск игрока..." onChange={event => setQuery(event.target.value)} />
+            <div style={{ display: 'flex', gap: 5 }}>
+            <input style={{ ...s.search, flex: 1 }} value={query} placeholder="Поиск игрока..." onChange={event => setQuery(event.target.value)} />
+            <button style={{ ...s.primary, fontSize: 11, padding: '5px 8px', flexShrink: 0 }} title="Скачать CSV" onClick={() => {
+              const rows = [['ID', 'Username', 'Имя', 'Нода', 'Инвентарь', 'Выборы'], ...players.map(p => [p.telegram_user_id, p.username || '', p.first_name || '', p.current_node_id || '', p.inventory_items, p.choices_count])];
+              const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+              const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = 'players.csv'; a.click();
+            }}>↓ CSV</button>
+          </div>
             <form style={s.addPlayer} onSubmit={addPlayer}>
               <input style={s.search} value={newPlayerId} placeholder="Telegram ID нового игрока" onChange={event => setNewPlayerId(event.target.value)} />
               <button style={s.primary} disabled={busy}>Добавить</button>
@@ -306,7 +316,7 @@ function ManagementPanel({ botId, tab, setError }) {
   const [items, setItems] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [form, setForm] = useState({});
-  const loaders = { promocodes: listBotPromocodes, products: listBotProducts, analytics: getBotAnalytics, versions: listBotVersions, backups: listBotBackups, jobs: listBotJobs, roles: listBotRoles };
+  const loaders = { globals: listBotGlobals, promocodes: listBotPromocodes, products: listBotProducts, analytics: getBotAnalytics, versions: listBotVersions, backups: listBotBackups, jobs: listBotJobs, roles: listBotRoles };
   const load = useCallback(async () => {
     try {
       setError('');
@@ -317,6 +327,23 @@ function ManagementPanel({ botId, tab, setError }) {
   useEffect(() => { load(); }, [load]);
   const update = (key, value) => setForm(previous => ({ ...previous, [key]: value }));
   const execute = async action => { try { setError(''); await action(); setForm({}); await load(); } catch (error) { setError(error.message); } };
+
+  if (tab === 'globals') return <div style={s.management}>
+    <Section title="Новая переменная">
+      <form style={s.createRow} onSubmit={e => { e.preventDefault(); if (!form.gName?.trim()) return; execute(() => setBotGlobal(botId, form.gName.trim(), { type: form.gType || 'number', value: form.gType === 'text' ? (form.gVal || '') : form.gType === 'boolean' ? (form.gVal === 'true') : +form.gVal || 0 })); }}>
+        <input style={s.smallInput} placeholder="Имя" value={form.gName || ''} onChange={e => update('gName', e.target.value)} />
+        <select style={s.select} value={form.gType || 'number'} onChange={e => update('gType', e.target.value)}>
+          <option value="number">число</option><option value="text">текст</option><option value="boolean">логика</option>
+        </select>
+        <input style={s.smallInput} placeholder="Значение" value={form.gVal ?? ''} onChange={e => update('gVal', e.target.value)} />
+        <button style={s.primary}>Сохранить</button>
+      </form>
+    </Section>
+    <SimpleRows items={items} title={`Глобальные переменные (${items.length})`}
+      render={item => `${item.name}  =  ${String(item.value)}`}
+      onDelete={item => execute(() => deleteBotGlobal(botId, item.name))} />
+    <div style={{ padding: '6px 0', color: '#718096', fontSize: 11 }}>Доступны в условиях ветвления (источник: Глоб. переменная). Общие для всех игроков.</div>
+  </div>;
 
   if (tab === 'analytics') return <div style={s.management}>
     <AnalyticsPanel analytics={analytics} />
@@ -374,11 +401,27 @@ function ManagementPanel({ botId, tab, setError }) {
 
   return <div style={s.management}>
     <Section title="Запланировать рассылку">
-      <form style={s.createRow} onSubmit={event => { event.preventDefault(); execute(() => createBotJob(botId, { type: 'broadcast', runAt: form.runAt || new Date().toISOString(), payload: { text: form.text || '' } })); }}>
-        <CountedInput style={s.smallInput} placeholder="Текст рассылки" value={form.text || ''} maxLength={TELEGRAM_LIMITS.messageText} onChange={event => update('text', event.target.value)} />
+      <form style={s.createRow} onSubmit={event => {
+        event.preventDefault();
+        const filter = form.filterKey ? { source: form.filterSource || 'variable', key: form.filterKey, operator: form.filterOperator || '=', value: form.filterVal || '' } : undefined;
+        execute(() => createBotJob(botId, { type: 'broadcast', runAt: form.runAt || new Date().toISOString(), payload: { text: form.text || '', filter, inactiveDays: +form.inactiveDays || 0 } }));
+      }}>
+        <CountedInput style={s.smallInput} placeholder="Текст рассылки" value={form.text || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter onChange={event => update('text', event.target.value)} />
         <input style={s.smallInput} type="datetime-local" value={form.runAt || ''} onChange={event => update('runAt', event.target.value)} />
-        <button style={s.primary}>Поставить в очередь</button>
+        <button style={s.primary}>В очередь</button>
       </form>
+      <div style={{ ...s.createRow, marginTop: 8, borderTop: '1px solid #2d3458', paddingTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: '#718096', alignSelf: 'center' }}>Фильтр аудитории:</span>
+        <select style={s.select} value={form.filterSource || 'variable'} onChange={event => update('filterSource', event.target.value)}>
+          <option value="variable">Переменная</option><option value="inventory">Предмет</option><option value="achievement">Достижение</option>
+        </select>
+        <input style={s.smallInput} placeholder="Ключ" value={form.filterKey || ''} onChange={event => update('filterKey', event.target.value)} />
+        <select style={s.select} value={form.filterOperator || '='} onChange={event => update('filterOperator', event.target.value)}>
+          {(form.filterSource === 'achievement' ? [['unlocked', 'получено'], ['not_unlocked', 'не получено']] : [['=', '='], ['!=', '≠'], ['>', '>'], ['<', '<'], ['>=', '≥'], ['<=', '≤']]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <input style={s.smallInput} placeholder="Значение" value={form.filterVal || ''} onChange={event => update('filterVal', event.target.value)} />
+        <input style={s.quantity} type="number" min="0" placeholder="Неактивен дней" value={form.inactiveDays || ''} onChange={event => update('inactiveDays', event.target.value)} />
+      </div>
     </Section>
     <SimpleRows items={items} title="Задачи" render={item => `${item.job_type} · ${item.status} · ${new Date(item.run_at).toLocaleString('ru')}${item.last_error ? ` · ${item.last_error}` : ''}`} />
   </div>;
@@ -457,6 +500,10 @@ function AnalyticsPanel({ analytics }) {
 
       <Section title="Воронка конверсии">
         <FunnelChart events={analytics.events || []} />
+      </Section>
+
+      <Section title="Активность по дням за 30 дней">
+        <BarChart items={analytics.daily || []} labelFn={item => new Date(item.day).toLocaleDateString('ru')} maxBars={30} />
       </Section>
 
       <Section title={`Топ посещаемых нод (${(analytics.nodes || []).length})`}>

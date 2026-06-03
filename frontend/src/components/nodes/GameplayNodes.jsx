@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
+import { normalizeRandomConfig } from '../../randomUtils';
 
 function Frame({ children, selected, icon, title, data, input = true, output = true }) {
   return (
@@ -16,9 +17,18 @@ function Frame({ children, selected, icon, title, data, input = true, output = t
 export function InventoryNode({ data, selected }) {
   const entries = data.entries || [];
   return (
-    <Frame selected={selected} icon="🎒" title={data.title || 'Инвентарь'} data={data}>
+    <Frame selected={selected} icon="🎒" title={data.title === 'Инвентарь' ? 'Изменить инвентарь' : (data.title || 'Изменить инвентарь')} data={data}>
       {entries.length === 0 && <div style={s.empty}>Нет операций</div>}
       {entries.map(entry => <div key={entry.id} style={s.row}><span style={s.key}>{entry.itemKey || '?'}</span><span style={s.value}>{entry.action || 'add'} {entry.quantity ?? 1}</span></div>)}
+    </Frame>
+  );
+}
+
+export function InventoryViewNode({ data, selected }) {
+  return (
+    <Frame selected={selected} icon="🎒" title={data.title || 'Инвентарь'} data={data}>
+      <div style={s.body}>{data.emptyText || 'Инвентарь пуст.'}</div>
+      <div style={s.row}><span style={s.key}>Формат</span><span style={s.value}>{data.itemFormat || '{{item}} x{{amount}}'}</span></div>
     </Frame>
   );
 }
@@ -46,7 +56,15 @@ export function RelationNode({ data, selected }) {
 }
 
 export function AchievementNode({ data, selected }) {
-  return <Frame selected={selected} icon="🏆" title={data.title || 'Достижение'} data={data}><div style={s.body}>{data.achievementKey || 'Укажите ключ достижения'}</div></Frame>;
+  return <Frame selected={selected} icon="🏆" title={data.title === 'Достижение' ? 'Выдать достижение' : (data.title || 'Выдать достижение')} data={data}><div style={s.body}>{data.achievementKey || 'Укажите ключ достижения'}</div></Frame>;
+}
+
+export function AchievementsViewNode({ data, selected }) {
+  return (
+    <Frame selected={selected} icon="🏆" title={data.title || 'Достижения'} data={data}>
+      <div style={s.body}>{data.template || 'Достижения: {{unlocked}} / {{total}}'}</div>
+    </Frame>
+  );
 }
 
 export function PromocodeNode({ data, selected }) {
@@ -59,6 +77,85 @@ export function SubscenarioNode({ data, selected }) {
 
 export function ReturnNode({ data, selected }) {
   return <Frame selected={selected} icon="↵" title={data.title || 'Возврат'} data={data} output={false}><div style={s.body}>Вернуться из подсценария</div></Frame>;
+}
+
+export function TextInputNode({ data, selected }) {
+  return (
+    <Frame selected={selected} icon="✏️" title={data.title || 'Ввод текста'} data={data}>
+      <div style={s.body}>{data.prompt || 'Введите ответ:'}</div>
+      {data.varName && <div style={s.row}><span style={s.key}>→ {data.varName}</span><span style={s.value}>{data.varType || 'text'}</span></div>}
+    </Frame>
+  );
+}
+
+export function EditMessageNode({ data, selected }) {
+  return <Frame selected={selected} icon="📝" title={data.title || 'Изменить сообщение'} data={data}><div style={s.body}>{data.text || 'Введите новый текст'}</div></Frame>;
+}
+
+export function PollNode({ data, selected }) {
+  return <Frame selected={selected} icon="📊" title={data.title || 'Опрос или тест'} data={data}><div style={s.body}>{data.question || 'Введите вопрос'} · {(data.options || []).length} вариантов</div></Frame>;
+}
+
+export function StickerNode({ data, selected }) {
+  return <Frame selected={selected} icon="🏷" title={data.title || 'Стикер'} data={data}><div style={s.body}>{data.sticker || 'Укажите file_id или URL'}</div></Frame>;
+}
+
+export function LocationNode({ data, selected }) {
+  return <Frame selected={selected} icon="📍" title={data.title || 'Геолокация'} data={data}><div style={s.body}>{data.latitude || 0}, {data.longitude || 0}</div></Frame>;
+}
+
+export function SubscriptionCheckNode({ data, selected }) {
+  return (
+    <div style={{ ...s.wrap, border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55' }}>
+      <Handle type="target" position={Position.Left} id="in" style={s.hIn} />
+      <div style={s.header}><span>📡</span><span style={s.title}>{data.title || 'Проверка подписки'}</span></div>
+      <div style={s.body}>{data.channelId || 'Укажите @канал'}</div>
+      <div style={{ ...s.cont, color: '#22c55e' }}><span style={s.muted}>Подписан</span><Handle type="source" position={Position.Right} id="subscribed" style={s.hOut} /></div>
+      <div style={{ ...s.cont, color: '#ef4444' }}><span style={s.muted}>Не подписан</span><Handle type="source" position={Position.Right} id="not_subscribed" style={s.hOut} /></div>
+      {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}
+    </div>
+  );
+}
+
+export function HttpRequestNode({ data, selected }) {
+  return (
+    <div style={{ ...s.wrap, border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55' }}>
+      <Handle type="target" position={Position.Left} id="in" style={s.hIn} />
+      <div style={s.header}><span>🌐</span><span style={s.title}>{data.title || 'HTTP-запрос'}</span></div>
+      <div style={s.body}><span style={{ color: '#f6ad55', fontWeight: 700, fontSize: 11 }}>{data.method || 'GET'}</span> {data.url ? data.url.slice(0, 38) : 'Укажите URL'}</div>
+      {data.responseVar && <div style={s.row}><span style={{ ...s.key, color: '#38bdf8' }}>→ {data.responseVar}</span></div>}
+      <div style={{ ...s.cont, color: '#22c55e' }}><span style={s.muted}>Успех</span><Handle type="source" position={Position.Right} id="success" style={s.hOut} /></div>
+      <div style={{ ...s.cont, color: '#ef4444' }}><span style={s.muted}>Ошибка</span><Handle type="source" position={Position.Right} id="error" style={s.hOut} /></div>
+      {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}
+    </div>
+  );
+}
+
+export function LoopNode({ data, selected }) {
+  return (
+    <div style={{ ...s.wrap, border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55' }}>
+      <Handle type="target" position={Position.Left} id="in" style={s.hIn} />
+      <div style={s.header}><span>🔁</span><span style={s.title}>{data.title || 'Цикл'}</span></div>
+      <div style={s.body}>Итераций: {data.maxIterations || 10}</div>
+      <div style={{ ...s.cont, color: '#38bdf8' }}><span style={s.muted}>Тело цикла</span><Handle type="source" position={Position.Right} id="body" style={s.hOut} /></div>
+      <div style={{ ...s.cont, color: '#a78bfa' }}><span style={s.muted}>Завершить</span><Handle type="source" position={Position.Right} id="done" style={s.hOut} /></div>
+      {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}
+    </div>
+  );
+}
+
+export function BreakLoopNode({ data, selected }) {
+  return <Frame selected={selected} icon="⏹" title={data.title || 'Выход из цикла'} data={data}><div style={s.body}>Прервать цикл: {data.targetLoopId ? data.targetLoopId.slice(0, 7) : 'не выбран'}</div></Frame>;
+}
+
+export function GlobalVariableNode({ data, selected }) {
+  const entries = data.entries || [];
+  return (
+    <Frame selected={selected} icon="🌐" title={data.title || 'Глобальные переменные'} data={data}>
+      {entries.length === 0 && <div style={s.empty}>Нет операций</div>}
+      {entries.map(e => <div key={e.id} style={s.row}><span style={{ ...s.key, color: '#38bdf8' }}>{e.varName || '?'}</span><span style={s.value}>{e.action || 'set'} {e.value ?? ''}</span></div>)}
+    </Frame>
+  );
 }
 
 export function InvokeCommandNode({ data, selected }) {
@@ -75,24 +172,22 @@ export function PurchaseNode({ data, selected }) {
 }
 
 export function RandomNode({ id, data, selected }) {
-  const branches = data.branches || [];
-  const refs = useRef([]);
-  const [tops, setTops] = useState([]);
+  const { rangeMin, rangeMax, branches } = normalizeRandomConfig(data);
   const updateNodeInternals = useUpdateNodeInternals();
 
   useEffect(() => {
-    const next = refs.current.map(element => element ? element.offsetTop + Math.round(element.offsetHeight / 2) : 0);
-    setTops(previous => previous.length === next.length && previous.every((value, index) => value === next[index]) ? previous : next);
-  });
-  useEffect(() => { if (tops.length) updateNodeInternals(id); }, [tops, id, updateNodeInternals]);
+    const frame = requestAnimationFrame(() => updateNodeInternals(id));
+    return () => cancelAnimationFrame(frame);
+  }, [id, branches.length, updateNodeInternals]);
 
   return (
     <Frame selected={selected} icon="🎲" title={data.title || 'Случайность'} data={data} output={false}>
+      <div style={s.body}>Случайное число: {rangeMin}..{rangeMax}</div>
       {branches.map((branch, index) => (
-        <div key={branch.id} ref={element => { refs.current[index] = element; }} style={s.row}>
+        <div key={branch.id} style={s.row}>
           <span style={s.key}>{branch.label || `Вариант ${index + 1}`}</span>
-          <span style={s.value}>{branch.weight || 1}</span>
-          <Handle type="source" position={Position.Right} id={`random-${branch.id}`} style={{ ...s.hOut, top: tops[index] || 0, transform: 'none' }} />
+          <span style={s.value}>{branch.from}..{branch.to}</span>
+          <Handle type="source" position={Position.Right} id={`random-${branch.id}`} style={{ ...s.hOut, top: '50%', transform: 'translateY(-50%)' }} />
         </div>
       ))}
       {branches.length === 0 && <div style={s.empty}>Нет вариантов</div>}

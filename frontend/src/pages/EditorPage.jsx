@@ -20,9 +20,9 @@ import CommentNode      from '../components/nodes/CommentNode';
 import MediaNode        from '../components/nodes/MediaNode';
 import GroupNode        from '../components/nodes/GroupNode';
 import { CommandEntryNode, ContinueStoryNode } from '../components/nodes/CommandEntryNode';
-import { AchievementNode, CheckpointNode, FormulaNode, InventoryNode, InvokeCommandNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ReturnNode, SubscenarioNode } from '../components/nodes/GameplayNodes';
+import { AchievementNode, AchievementsViewNode, BreakLoopNode, CheckpointNode, EditMessageNode, FormulaNode, GlobalVariableNode, HttpRequestNode, InventoryNode, InventoryViewNode, InvokeCommandNode, LocationNode, LoopNode, PollNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ReturnNode, StickerNode, SubscenarioNode, SubscriptionCheckNode, TextInputNode } from '../components/nodes/GameplayNodes';
 import { NodeDebugContext, withNodeDebug } from '../components/nodes/DebuggableNode';
-import { validateScenarioText } from '../telegramLimits';
+import { SYSTEM_PLACEHOLDER_VARIABLES, isSystemPlaceholderName, validateScenarioText } from '../telegramLimits';
 
 import NodePanel    from '../components/panels/NodePanel';
 import ContextMenu  from '../components/panels/ContextMenu';
@@ -30,11 +30,12 @@ import HistoryPanel from '../components/panels/HistoryPanel';
 import CompareView  from '../components/panels/CompareView';
 import AdminPanel   from '../components/panels/AdminPanel';
 import HelpModal    from '../components/panels/HelpModal';
+import LoreModal    from '../components/panels/LoreModal';
 import NodeInspector from '../components/inspector/NodeInspector';
 import Simulator    from '../components/simulator/Simulator';
 
 import {
-  getBot, saveBot, downloadBotUrl,
+  getBot, saveBot, downloadBot,
   getTelegramStatus, startTelegramBot, stopTelegramBot,
 } from '../api';
 
@@ -52,6 +53,7 @@ const nodeTypes = {
   commentNode:       CommentNode,
   mediaNode:         withNodeDebug(MediaNode),
   inventoryNode:     withNodeDebug(InventoryNode),
+  inventoryViewNode: withNodeDebug(InventoryViewNode),
   formulaNode:       withNodeDebug(FormulaNode),
   randomNode:        withNodeDebug(RandomNode),
   checkpointNode:    withNodeDebug(CheckpointNode),
@@ -61,11 +63,22 @@ const nodeTypes = {
   continueStoryNode: withNodeDebug(ContinueStoryNode),
   relationNode:      withNodeDebug(RelationNode),
   achievementNode:   withNodeDebug(AchievementNode),
+  achievementsViewNode: withNodeDebug(AchievementsViewNode),
   promocodeNode:     withNodeDebug(PromocodeNode),
   subscenarioNode:   withNodeDebug(SubscenarioNode),
   returnNode:        withNodeDebug(ReturnNode),
   purchaseNode:      withNodeDebug(PurchaseNode),
-  invokeCommandNode: withNodeDebug(InvokeCommandNode),
+  invokeCommandNode:      withNodeDebug(InvokeCommandNode),
+  textInputNode:          withNodeDebug(TextInputNode),
+  editMessageNode:        withNodeDebug(EditMessageNode),
+  pollNode:               withNodeDebug(PollNode),
+  stickerNode:            withNodeDebug(StickerNode),
+  locationNode:           withNodeDebug(LocationNode),
+  subscriptionCheckNode:  withNodeDebug(SubscriptionCheckNode),
+  httpRequestNode:        withNodeDebug(HttpRequestNode),
+  loopNode:               withNodeDebug(LoopNode),
+  breakLoopNode:          withNodeDebug(BreakLoopNode),
+  globalVariableNode:     withNodeDebug(GlobalVariableNode),
   groupNode:         GroupNode,
 };
 
@@ -87,28 +100,40 @@ function makeDefaultData(type) {
     case 'applicationNode':  return { title: 'Заявка' };
     case 'messageChainNode': return { title: 'Цепочка сообщений', messages: [{ id: uuidv4(), type: 'text', text: '', url: '', fileName: '', delay: 0, protected: false, asVideoNote: false }] };
     case 'conditionNode':    return { condition: 'Текст содержит...', conditionType: 'Текст содержит' };
-    case 'delayNode':        return { seconds: 3 };
+    case 'delayNode':        return { amount: 3, unit: 'seconds' };
     case 'simpleMessageNode':return { type: 'text', text: '', url: '', fileName: '', protected: false, asVideoNote: false };
     case 'variableNode':     return { entries: [] };
     case 'keyboardNode':     return { title: 'Клавиатура', buttons: [{ id: uuidv4(), label: 'Вариант 1' }, { id: uuidv4(), label: 'Вариант 2' }] };
     case 'branchingNode':   return { title: 'Ветвление', branches: [{ id: uuidv4(), label: 'Ветка 1', conditions: [] }, { id: uuidv4(), label: 'Иначе', conditions: [] }] };
     case 'commentNode':     return { title: 'Комментарий', text: '' };
     case 'mediaNode':       return { title: 'Медиа', items: [], asAlbum: false };
-    case 'inventoryNode':   return { title: 'Инвентарь', entries: [] };
+    case 'inventoryNode':   return { title: 'Изменить инвентарь', entries: [] };
+    case 'inventoryViewNode': return { title: 'Инвентарь', header: 'Ваш инвентарь:', itemFormat: '{{item}} x{{amount}}', emptyText: 'Инвентарь пуст.' };
     case 'formulaNode':     return { title: 'Формула', entries: [] };
-    case 'randomNode':      return { title: 'Случайность', branches: [{ id: uuidv4(), label: 'Вариант 1', weight: 1 }, { id: uuidv4(), label: 'Вариант 2', weight: 1 }] };
+    case 'randomNode':      return { title: 'Случайность', rangeMin: 1, rangeMax: 10, branches: [{ id: uuidv4(), label: 'Вариант 1', from: 1, to: 5 }, { id: uuidv4(), label: 'Вариант 2', from: 6, to: 10 }] };
     case 'checkpointNode':  return { title: 'Чекпоинт' };
     case 'menuNode':        return { title: 'Глобальное меню' };
     case 'settingsNode':    return { title: 'Настройки' };
     case 'customCommandNode': return { title: 'Команда', command: '', description: '', aliases: '', showInMenu: true };
     case 'continueStoryNode': return { title: 'Продолжить историю' };
     case 'relationNode':    return { title: 'Отношения', entries: [] };
-    case 'achievementNode': return { title: 'Достижение', achievementKey: '', notify: true };
+    case 'achievementNode': return { title: 'Выдать достижение', achievementKey: '', imageUrl: '', notify: true };
+    case 'achievementsViewNode': return { title: 'Достижения', template: 'Достижения: {{unlocked}} / {{total}}' };
     case 'promocodeNode':   return { title: 'Промокод', prompt: 'Введите промокод:' };
     case 'subscenarioNode': return { title: 'Подсценарий', targetNodeId: '' };
     case 'returnNode':      return { title: 'Возврат' };
-    case 'purchaseNode':       return { title: 'Покупка', productKey: '' };
-    case 'invokeCommandNode':  return { title: 'Вызвать команду', targetNodeId: '', targetTitle: '' };
+    case 'purchaseNode':          return { title: 'Покупка', productKey: '' };
+    case 'invokeCommandNode':     return { title: 'Вызвать команду', targetNodeId: '', targetTitle: '' };
+    case 'textInputNode':         return { title: 'Ввод текста', prompt: 'Введите ответ:', varName: '', varType: 'text' };
+    case 'editMessageNode':        return { title: 'Изменить сообщение', text: '' };
+    case 'pollNode':               return { title: 'Опрос или тест', question: '', options: ['Вариант 1', 'Вариант 2'], quiz: false, correctOption: 0 };
+    case 'stickerNode':            return { title: 'Стикер', sticker: '' };
+    case 'locationNode':           return { title: 'Геолокация', latitude: 0, longitude: 0 };
+    case 'subscriptionCheckNode': return { title: 'Проверка подписки', channelId: '', prompt: '' };
+    case 'httpRequestNode':       return { title: 'HTTP-запрос', url: '', method: 'GET', headers: '{}', body: '', responsePath: '', responseVar: '', requestTimeout: 5000 };
+    case 'loopNode':              return { title: 'Цикл', maxIterations: 10 };
+    case 'breakLoopNode':         return { title: 'Выход из цикла', targetLoopId: '' };
+    case 'globalVariableNode':    return { title: 'Глобальные переменные', entries: [] };
     default: return {};
   }
 }
@@ -184,20 +209,46 @@ function pointInsideNode(point, node, nodeMap) {
     point.y >= position.y && point.y <= position.y + size.height;
 }
 
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function findFreePosition(position, type, existingNodes) {
+  const size = type === 'groupNode' ? { width: 320, height: 220 } : { width: 260, height: 130 };
+  const existing = existingNodes.map(node => ({ ...absolutePosition(node, new Map(existingNodes.map(item => [item.id, item]))), ...nodeSize(node) }));
+  let candidate = { ...position };
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const rect = { ...candidate, ...size };
+    if (!existing.some(item => rectsOverlap(rect, item))) return candidate;
+    candidate = { x: position.x + 34 * (attempt + 1), y: position.y + 26 * (attempt + 1) };
+  }
+  return candidate;
+}
+
+function stripSearchHighlight(style) {
+  if (!style?.outline) return style;
+  const { outline, outlineOffset, ...rest } = style;
+  return rest;
+}
+
 // ── Derive botVariables from all variableNodes ──────────────────────
 function extractVars(nodes) {
   const vars = {};
   const names = new Set();
+  Object.keys(vars).forEach(name => names.add(name.toLowerCase()));
+  function add(name, type = 'boolean') {
+    const trimmed = name?.trim();
+    const normalizedName = trimmed?.toLowerCase();
+    if (!normalizedName || isSystemPlaceholderName(trimmed) || names.has(normalizedName)) return;
+    vars[trimmed] = { type, defaultValue: type === 'number' ? 0 : (type === 'boolean' ? false : '') };
+    names.add(normalizedName);
+  }
   nodes.filter(n => n.type === 'variableNode').forEach(n => {
-    (n.data.entries || []).forEach(e => {
-      const normalizedName = e.varName?.trim().toLowerCase();
-      if (normalizedName && !names.has(normalizedName)) {
-        const type = e.varType || 'boolean';
-        vars[e.varName] = { type, defaultValue: type === 'number' ? 0 : false };
-        names.add(normalizedName);
-      }
-    });
+    (n.data.entries || []).forEach(e => add(e.varName, e.varType || 'boolean'));
   });
+  nodes.filter(n => n.type === 'textInputNode').forEach(n => add(n.data.varName, n.data.varType || 'text'));
+  nodes.filter(n => n.type === 'httpRequestNode').forEach(n => add(n.data.responseVar, 'text'));
+  nodes.filter(n => n.type === 'globalVariableNode').forEach(n => (n.data.entries || []).forEach(e => add(e.varName, e.varType || 'number')));
   return vars;
 }
 
@@ -241,7 +292,7 @@ function applyVariableEntries(vars, entries) {
     const name = entry.varName?.trim();
     if (!name) continue;
     const type = entry.varType || 'boolean';
-    const initialValue = type === 'number' ? 0 : false;
+    const initialValue = type === 'number' ? 0 : (type === 'text' ? '' : false);
     const current = vars[name] || { type, defaultValue: initialValue };
     let value = entry.value ?? initialValue;
     if (entry.action === 'increment') value = (+current.defaultValue || 0) + (+entry.value || 1);
@@ -250,12 +301,21 @@ function applyVariableEntries(vars, entries) {
   }
 }
 
+function declareVariable(vars, name, type = 'text') {
+  const trimmed = name?.trim();
+  if (!trimmed || vars[trimmed]) return;
+  vars[trimmed] = { type, defaultValue: type === 'number' ? 0 : (type === 'boolean' ? false : '') };
+}
+
 function varsBeforeNode(nodes, edges, targetNodeId) {
   const path = scenarioPathToNode(nodes, edges, targetNodeId);
   const vars = {};
   path.slice(0, -1).forEach(nodeId => {
     const node = nodes.find(item => item.id === nodeId);
     if (node?.type === 'variableNode') applyVariableEntries(vars, node.data.entries);
+    if (node?.type === 'textInputNode') declareVariable(vars, node.data.varName, node.data.varType || 'text');
+    if (node?.type === 'httpRequestNode') declareVariable(vars, node.data.responseVar, 'text');
+    if (node?.type === 'globalVariableNode') (node.data.entries || []).forEach(entry => declareVariable(vars, entry.varName, entry.varType || 'number'));
   });
   return vars;
 }
@@ -273,7 +333,9 @@ function validateScenario(nodes, edges) {
 
   const reachable = new Set();
   // startNode is optional — new bots use menuNode as sole entry point
-  const queue = [...starts, menus[0], settings[0], ...customCommands].filter(Boolean).map(node => node.id);
+  const incoming = new Set(workEdges.map(edge => edge.target));
+  const storyRoot = nodes.find(node => !['menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode', 'commentNode', 'groupNode'].includes(node.type) && !incoming.has(node.id));
+  const queue = [...starts, menus[0], settings[0], ...customCommands, storyRoot].filter(Boolean).map(node => node.id);
   while (queue.length) {
     const id = queue.shift();
     if (reachable.has(id)) continue;
@@ -354,7 +416,17 @@ export default function EditorPage() {
   const [showTelegramLogs, setShowTelegramLogs] = useState(false);
   const [showTelegramStart, setShowTelegramStart] = useState(false);
   const [showAdmin, setShowAdmin]                 = useState(false);
+  const [searchQuery, setSearchQuery]             = useState('');
+  const [showSearch, setShowSearch]               = useState(false);
+  const [highlightedNodeId, setHighlightedNodeId] = useState(null);
+  const [nodesExpanded, setNodesExpanded]         = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus]       = useState(null); // null | 'saved' | 'error'
+  const [autoSaveEnabled, setAutoSaveEnabled]     = useState(true);
+  const [autoSaveMinutes, setAutoSaveMinutes]     = useState('10');
+  const [showSettings, setShowSettings]           = useState(false);
   const [showHelp, setShowHelp]                   = useState(false);
+  const [showLore, setShowLore]                   = useState(false);
+  const [botLore, setBotLore]                     = useState({ text: '' });
   const [telegramToken, setTelegramToken]     = useState('');
   const [telegramError, setTelegramError]     = useState('');
 
@@ -363,10 +435,13 @@ export default function EditorPage() {
   // Stable refs
   const snapshotsRef = useRef(snapshots);
   const botNameRef   = useRef(botName);
+  const botLoreRef   = useRef(botLore);
   const nodesRef     = useRef(nodes);
   const edgesRef     = useRef(edges);
+  const copiedSelectionRef = useRef(null);
   useEffect(() => { snapshotsRef.current = snapshots; }, [snapshots]);
   useEffect(() => { botNameRef.current   = botName;   }, [botName]);
+  useEffect(() => { botLoreRef.current   = botLore;   }, [botLore]);
   useEffect(() => { nodesRef.current     = nodes;     }, [nodes]);
   useEffect(() => { edgesRef.current     = edges;     }, [edges]);
 
@@ -381,6 +456,7 @@ export default function EditorPage() {
     getBot(id).then(data => {
       setBot(data);
       setBotName(data.name);
+      setBotLore(data.lore || { text: '' });
       const ns = data.nodes || [];
       const es = removeDuplicateConnections((data.edges || []).map(edge => normalizeEdge(edge, ns)), ns);
       setNodes(ns);
@@ -425,6 +501,31 @@ export default function EditorPage() {
       else undoIdx.current = undoStack.current.length - 1;
     }, 600);
   }, [nodes, edges]);
+
+  // Autosave on the configured minute interval.
+  useEffect(() => {
+    if (!bot || !autoSaveEnabled) return;
+    const minutes = Math.max(1, Number(autoSaveMinutes) || 5);
+    const timer = setInterval(async () => {
+      if (!initializedRef.current) return;
+      try {
+        await saveBot(id, { nodes: nodesRef.current, edges: edgesRef.current, name: botNameRef.current, snapshots: snapshotsRef.current, lore: botLoreRef.current });
+        setAutoSaveStatus('saved');
+        setTimeout(() => setAutoSaveStatus(null), 2000);
+      } catch { setAutoSaveStatus('error'); setTimeout(() => setAutoSaveStatus(null), 3000); }
+    }, minutes * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [autoSaveEnabled, autoSaveMinutes, bot, id]);
+
+  // Ctrl+F search
+  useEffect(() => {
+    const handler = e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); setShowSearch(v => !v); }
+      if (e.key === 'Escape') setShowSearch(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   function undo() {
     if (undoIdx.current <= 0) return;
@@ -520,7 +621,8 @@ export default function EditorPage() {
       if ('title' in data) data.title = name.trim();
       else if (type === 'variableNode') data.varName = name.trim();
     }
-    const newNode = { id: nodeId, type, position: position || { x: 300, y: 200 }, data, selected: true };
+    const safePosition = findFreePosition(position || { x: 300, y: 200 }, type, nodesRef.current);
+    const newNode = { id: nodeId, type, position: safePosition, data: { ...data, __expanded: nodesExpanded }, selected: true };
     setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(newNode));
     if (pendingConn?.source) {
       const edge = attachNewComment
@@ -543,6 +645,14 @@ export default function EditorPage() {
 
   function handleContextMenuSelect(type, name) {
     if (contextMenu) addNode(type, name, contextMenu.flowPos, contextMenu.pendingConnection);
+  }
+
+  function toggleNodesExpanded() {
+    setNodesExpanded(value => {
+      const next = !value;
+      setNodes(nds => nds.map(node => ({ ...node, data: { ...node.data, __expanded: next } })));
+      return next;
+    });
   }
 
   function createGroupFromSelection() {
@@ -665,7 +775,7 @@ export default function EditorPage() {
       const flow = rfRef.current ? rfRef.current.toObject() : { nodes: nodesRef.current, edges: edgesRef.current };
       const newSnap = { timestamp: new Date().toISOString(), label: null, nodes: deepCopy(flow.nodes), edges: deepCopy(flow.edges) };
       const newSnaps = [...snapshotsRef.current, newSnap];
-      await saveBot(id, { name: botNameRef.current, nodes: flow.nodes, edges: flow.edges, snapshots: newSnaps });
+      await saveBot(id, { name: botNameRef.current, nodes: flow.nodes, edges: flow.edges, snapshots: newSnaps, lore: botLoreRef.current });
       setSnapshots(newSnaps);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -675,6 +785,20 @@ export default function EditorPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleDownloadJson() {
+    try {
+      await downloadBot(id, botNameRef.current);
+    } catch (error) {
+      alert(error.message);
+    }
+  }
+
+  async function saveSnapshots(nextSnapshots) {
+    const flow = rfRef.current ? rfRef.current.toObject() : { nodes: nodesRef.current, edges: edgesRef.current };
+    await saveBot(id, { name: botNameRef.current, nodes: flow.nodes, edges: flow.edges, snapshots: nextSnapshots, lore: botLoreRef.current });
+    setSnapshots(nextSnapshots);
   }
 
   function openTelegramStart() {
@@ -717,7 +841,7 @@ export default function EditorPage() {
   }
 
   function handleRestoreSnapshot(snap) {
-    if (!confirm('Восстановить снапшот?')) return;
+    if (!confirm('Восстановить этот снапшот? Текущие несохраненные изменения на холсте будут заменены.')) return;
     skipHistoryRef.current = true;
     const ns = deepCopy(snap.nodes);
     setNodes(ns);
@@ -725,11 +849,84 @@ export default function EditorPage() {
     setShowHistory(false);
   }
 
+  async function handleCommentSnapshot(snap) {
+    const comment = prompt('Комментарий к снапшоту:', snap.comment || '');
+    if (comment === null) return;
+    const nextSnapshots = snapshotsRef.current.map(item =>
+      item.timestamp === snap.timestamp ? { ...item, comment: comment.trim() } : item
+    );
+    try {
+      await saveSnapshots(nextSnapshots);
+    } catch (error) {
+      alert(`Не удалось сохранить комментарий:\n${error.message}`);
+    }
+  }
+
+  async function handleDeleteSnapshot(snap) {
+    if (!confirm('Удалить этот снапшот? Действие нельзя отменить.')) return;
+    const nextSnapshots = snapshotsRef.current.filter(item => item.timestamp !== snap.timestamp);
+    try {
+      await saveSnapshots(nextSnapshots);
+    } catch (error) {
+      alert(`Не удалось удалить снапшот:\n${error.message}`);
+    }
+  }
+
+  function copySelectedNodes() {
+    const selected = nodesRef.current.filter(node => node.selected && node.type !== 'groupNode');
+    if (!selected.length) return false;
+    const selectedIds = new Set(selected.map(node => node.id));
+    const nodeMap = new Map(nodesRef.current.map(node => [node.id, node]));
+    copiedSelectionRef.current = {
+      nodes: selected.map(node => ({
+        ...deepCopy(node),
+        position: absolutePosition(node, nodeMap),
+        parentId: undefined,
+        extent: undefined,
+        selected: false,
+      })),
+      edges: edgesRef.current.filter(edge => selectedIds.has(edge.source) && selectedIds.has(edge.target)).map(edge => deepCopy(edge)),
+    };
+    return true;
+  }
+
+  function pasteCopiedNodes() {
+    const copied = copiedSelectionRef.current;
+    if (!copied?.nodes?.length) return false;
+    const center = rfRef.current
+      ? rfRef.current.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+      : { x: 300, y: 200 };
+    const minX = Math.min(...copied.nodes.map(node => node.position.x));
+    const minY = Math.min(...copied.nodes.map(node => node.position.y));
+    const idMap = new Map();
+    const pasted = [];
+    copied.nodes.forEach((node, index) => {
+      const nextId = uuidv4();
+      idMap.set(node.id, nextId);
+      const preferred = { x: center.x + node.position.x - minX + index * 6, y: center.y + node.position.y - minY + index * 6 };
+      pasted.push({
+        ...deepCopy(node),
+        id: nextId,
+        position: findFreePosition(preferred, node.type, [...nodesRef.current, ...pasted]),
+        data: { ...deepCopy(node.data || {}), nodeId: nextId.slice(0, 7), __expanded: nodesExpanded },
+        selected: true,
+      });
+    });
+    const pastedEdges = copied.edges
+      .filter(edge => idMap.has(edge.source) && idMap.has(edge.target))
+      .map(edge => normalizeEdge({ ...deepCopy(edge), id: uuidv4(), source: idMap.get(edge.source), target: idMap.get(edge.target), selected: false }, [...nodesRef.current, ...pasted]));
+    setNodes(nds => nds.map(node => ({ ...node, selected: false })).concat(pasted));
+    setEdges(eds => removeDuplicateConnections([...eds, ...pastedEdges], [...nodesRef.current, ...pasted]));
+    return true;
+  }
+
   // ── Keyboard (e.code = layout-independent) ─────────────────────
   useEffect(() => {
     function onKey(e) {
       const inInput = e.target?.tagName === 'INPUT' || e.target?.tagName === 'TEXTAREA';
       if (e.ctrlKey || e.metaKey) {
+        if (!inInput && e.code === 'KeyC') { if (copySelectedNodes()) e.preventDefault(); return; }
+        if (!inInput && e.code === 'KeyV') { if (pasteCopiedNodes()) e.preventDefault(); return; }
         if (e.code === 'KeyZ' && !e.shiftKey)                           { e.preventDefault(); undo();       return; }
         if (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey))     { e.preventDefault(); redo();       return; }
         if (e.code === 'KeyS')                                           { e.preventDefault(); handleSave(); return; }
@@ -744,8 +941,14 @@ export default function EditorPage() {
 
   const inspectorNode = selectedNodeIds.length === 1 && inspectorNodeId ? (nodes.find(n => n.id === inspectorNodeId) ?? null) : null;
   const allBotVariables = extractVars(nodes);
+  const placeholderVariables = { ...SYSTEM_PLACEHOLDER_VARIABLES, ...allBotVariables };
   const botVariables = inspectorNode ? varsBeforeNode(nodes, edges, inspectorNode.id) : allBotVariables;
   const simulatorVariables = simulatorStartNodeId ? varsBeforeNode(nodes, edges, simulatorStartNodeId) : {};
+  const displayedNodes = highlightedNodeId
+    ? nodes.map(node => node.id === highlightedNodeId
+      ? { ...node, className: `${node.className || ''} node-search-highlight`.trim() }
+      : { ...node, className: (node.className || '').replace(/\bnode-search-highlight\b/g, '').trim() || undefined })
+    : nodes;
   const openSimulator = (startNodeId = null) => {
     setSimulatorStartNodeId(startNodeId);
     setShowSimulator(true);
@@ -762,6 +965,11 @@ export default function EditorPage() {
         <button style={s.backBtn} onClick={() => navigate('/')}>← Боты</button>
         <input style={s.nameInput} value={botName} onChange={e => setBotName(e.target.value)} onKeyDown={e => e.stopPropagation()} />
         <div style={s.actions}>
+          <button style={s.btnHelp} onClick={toggleNodesExpanded}>
+            {nodesExpanded ? 'Свернуть ноды' : 'Развернуть ноды'}
+          </button>
+          <button style={s.btnHelp} onClick={() => setShowLore(true)}>Лор</button>
+          <button style={s.btnHelp} onClick={() => setShowSearch(v => !v)} title="Поиск нод (Ctrl+F)">Поиск 🔍</button>
           <button style={s.btnTest} onClick={() => openSimulator()}>🧪 Тест</button>
           <button style={s.btnValidate} onClick={handleValidate}>Проверить сценарий на ошибки</button>
           {telegramStatus.running ? (
@@ -776,17 +984,88 @@ export default function EditorPage() {
           <button style={s.btnTelegramLogs} onClick={() => setShowTelegramLogs(true)}>
             Логи Telegram
           </button>
-          <button style={s.btnAdmin} onClick={() => setShowAdmin(true)}>Админ</button>
           <button style={{ ...s.btnHistory, background: showHistory ? '#2a2d3e' : 'transparent' }} onClick={() => setShowHistory(v => !v)}>
             📋 История {snapshots.length > 0 && <span style={s.badge}>{snapshots.length}</span>}
           </button>
           <button style={s.btnSave} onClick={handleSave} disabled={saving}>
             {saving ? '...' : saved ? '✓ Готово' : 'Сохранить'}
           </button>
-          <a style={s.btnDownload} href={downloadBotUrl(id)} download>↓ JSON</a>
+          <div style={s.settingsWrap}>
+            <button style={s.btnSettings} title="Настройки" onClick={() => setShowSettings(value => !value)}>⚙</button>
+            {showSettings && (
+              <div style={s.settingsMenu}>
+                <button style={s.settingsItem} onClick={() => { setShowAdmin(true); setShowSettings(false); }}>Админ</button>
+                <button style={s.settingsItem} onClick={handleDownloadJson}>JSON</button>
+                <label style={s.autoSaveControl}>
+                  <span>Автосохранение</span>
+                  <input
+                    type="checkbox"
+                    checked={autoSaveEnabled}
+                    onChange={e => setAutoSaveEnabled(e.target.checked)}
+                    style={s.autoSaveCheckbox}
+                  />
+                </label>
+                {autoSaveEnabled && (
+                  <div style={s.autoSavePanel}>
+                    <span style={s.autoSaveLabel}>Минуты</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={autoSaveMinutes}
+                      onChange={e => setAutoSaveMinutes(e.target.value)}
+                      onBlur={() => {
+                        if (!Number(autoSaveMinutes) || Number(autoSaveMinutes) < 1) setAutoSaveMinutes('10');
+                      }}
+                      onKeyDown={e => e.stopPropagation()}
+                      style={s.autoSaveInput}
+                    />
+                    {autoSaveStatus && (
+                      <span style={{ ...s.autoSaveStatus, color: autoSaveStatus === 'saved' ? '#22c55e' : '#ef4444' }}>
+                        {autoSaveStatus === 'saved' ? 'Сохранено' : 'Ошибка'}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <button style={s.btnHelp} onClick={() => setShowHelp(true)}>? Справка</button>
         </div>
       </div>
+
+      {/* Search overlay */}
+      {showSearch && (
+        <div style={{ position: 'absolute', top: 56, left: '50%', transform: 'translateX(-50%)', zIndex: 300, background: '#1a1c2a', border: '1px solid #3b82f6', borderRadius: 10, padding: 12, width: 360, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+          <input autoFocus style={{ width: '100%', boxSizing: 'border-box', background: '#12131a', border: '1px solid #3a3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 13, padding: '7px 10px', outline: 'none' }}
+            placeholder="Поиск нод по тексту, типу, ID..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') setShowSearch(false); e.stopPropagation(); }} />
+          <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 8 }}>
+            {(() => {
+              const q = searchQuery.toLowerCase().trim();
+              if (!q) return <div style={{ color: '#4a5568', fontSize: 12, padding: '4px 0' }}>Введите запрос для поиска</div>;
+              const results = nodes.filter(n =>
+                (n.data?.title || '').toLowerCase().includes(q) ||
+                (n.data?.nodeId || '').toLowerCase().includes(q) ||
+                n.type.toLowerCase().includes(q) ||
+                n.id.toLowerCase().includes(q) ||
+                (n.data?.text || '').toLowerCase().includes(q)
+              );
+              if (!results.length) return <div style={{ color: '#4a5568', fontSize: 12, padding: '4px 0' }}>Ничего не найдено</div>;
+              return results.slice(0, 20).map(n => (
+                <div key={n.id} style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#e2e8f0', display: 'flex', gap: 8 }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#252a42'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  onClick={() => { setHighlightedNodeId(n.id); rfRef.current?.setCenter(n.position.x + 120, n.position.y + 60, { zoom: 1, duration: 400 }); setShowSearch(false); }}>
+                  <span style={{ color: '#718096', flexShrink: 0 }}>{n.type}</span>
+                  <span style={{ fontWeight: 600 }}>{n.data?.title || n.id.slice(0, 12)}</span>
+                  {n.data?.nodeId && <span style={{ color: '#4a5568' }}>#{n.data.nodeId}</span>}
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Workspace */}
       <div style={s.workspace}>
@@ -794,7 +1073,7 @@ export default function EditorPage() {
         <div style={s.canvas}>
           <NodeDebugContext.Provider value={openSimulator}>
             <ReactFlow
-              nodes={nodes} edges={edges}
+              nodes={displayedNodes} edges={edges}
               onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onConnectStart={onConnectStart}
@@ -826,13 +1105,15 @@ export default function EditorPage() {
             <HistoryPanel snapshots={snapshots}
               onRestore={handleRestoreSnapshot}
               onCompare={snap => { setCompareSnap(snap); setShowHistory(false); }}
+              onComment={handleCommentSnapshot}
+              onDelete={handleDeleteSnapshot}
               onClose={() => setShowHistory(false)} />
           )}
           {compareSnap && (
             <CompareView snapshot={compareSnap} currentNodes={nodes} currentEdges={edges} onClose={() => setCompareSnap(null)} />
           )}
           {inspectorNode && !compareSnap && (
-            <NodeInspector node={inspectorNode} onUpdate={updateNodeData} onUpdateNode={updateNode} onClose={() => setInspectorNodeId(null)} botVariables={botVariables} allBotVariables={allBotVariables} botId={id} nodes={nodes} />
+            <NodeInspector node={inspectorNode} onUpdate={updateNodeData} onUpdateNode={updateNode} onClose={() => setInspectorNodeId(null)} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={id} nodes={nodes} />
           )}
         </div>
       </div>
@@ -927,6 +1208,7 @@ export default function EditorPage() {
       )}
 
       {showAdmin && <AdminPanel botId={id} onClose={() => setShowAdmin(false)} />}
+      {showLore && <LoreModal lore={botLore} onChange={setBotLore} onClose={() => setShowLore(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
       <div style={s.hint}>
@@ -952,6 +1234,16 @@ const s = {
   btnHistory:{ border: '1px solid #2d3458', borderRadius: 6, color: '#a0aec0', fontSize: 13, padding: '5px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 },
   badge:     { background: '#3b82f6', color: '#fff', borderRadius: 10, fontSize: 10, padding: '1px 5px', fontWeight: 700 },
   btnSave:   { background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+  autoSaveControl: { display: 'flex', alignItems: 'center', gap: 6, color: '#cbd5e1', fontSize: 12, whiteSpace: 'nowrap' },
+  autoSaveCheckbox: { width: 16, height: 16, accentColor: '#3b82f6', cursor: 'pointer' },
+  autoSavePanel: { display: 'flex', alignItems: 'center', gap: 6, background: '#12131a', border: '1px solid #2d3458', borderRadius: 6, padding: '4px 6px' },
+  autoSaveLabel: { color: '#94a3b8', fontSize: 11 },
+  autoSaveInput: { width: 54, background: '#1e2030', border: '1px solid #2d3458', borderRadius: 5, color: '#e2e8f0', fontSize: 12, padding: '3px 6px', outline: 'none' },
+  autoSaveStatus: { fontSize: 11, whiteSpace: 'nowrap' },
+  settingsWrap: { position: 'relative' },
+  btnSettings: { width: 32, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#1e2030', color: '#cbd5e1', border: '1px solid #2d3458', borderRadius: 6, fontSize: 16, cursor: 'pointer' },
+  settingsMenu: { position: 'absolute', top: 38, right: 0, zIndex: 350, width: 230, background: '#1a1c2a', border: '1px solid #2d3458', borderRadius: 8, padding: 8, boxShadow: '0 10px 28px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: 8 },
+  settingsItem: { width: '100%', textAlign: 'left', background: '#1e2030', color: '#cbd5e1', border: '1px solid #2d3458', borderRadius: 6, padding: '7px 9px', fontSize: 12, cursor: 'pointer' },
   btnDownload: { background: '#1e2030', color: '#a0aec0', border: '1px solid #2d3458', borderRadius: 6, padding: '6px 14px', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center' },
   btnHelp: { background: '#1e2030', color: '#c4b5fd', border: '1px solid #4c3f78', borderRadius: 6, padding: '6px 12px', fontSize: 13, cursor: 'pointer' },
   workspace: { flex: 1, display: 'flex', overflow: 'hidden' },

@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function HistoryPanel({ snapshots, onRestore, onCompare, onClose }) {
+export default function HistoryPanel({ snapshots, onRestore, onCompare, onComment, onDelete, onClose }) {
   const list = [...snapshots].reverse();
 
   return (
@@ -18,7 +18,7 @@ export default function HistoryPanel({ snapshots, onRestore, onCompare, onClose 
         ) : list.map((snap, i) => (
           <div key={snap.timestamp} style={s.item}>
             <div style={s.itemInfo}>
-              <div style={s.itemLabel}>
+              <div style={s.itemLabel} title={snap.comment || undefined}>
                 {snap.label || `Снапшот #${snapshots.length - i}`}
               </div>
               <div style={s.itemDate}>
@@ -29,11 +29,17 @@ export default function HistoryPanel({ snapshots, onRestore, onCompare, onClose 
               </div>
             </div>
             <div style={s.btnGroup}>
-              <button style={s.btnCompare} onClick={() => onCompare(snap)}>
-                Сравнить
+              <button style={s.iconBtn} title="Комментарий" aria-label="Комментарий" onClick={() => onComment(snap)}>
+                💬
               </button>
-              <button style={s.btnRestore} onClick={() => onRestore(snap)}>
-                Восстановить
+              <button style={s.iconBtn} title="Сравнить" aria-label="Сравнить" onClick={() => onCompare(snap)}>
+                🔍
+              </button>
+              <button style={s.iconBtn} title="Восстановить" aria-label="Восстановить" onClick={() => onRestore(snap)}>
+                ↩
+              </button>
+              <button style={{ ...s.iconBtn, ...s.deleteBtn }} title="Удалить" aria-label="Удалить" onClick={() => onDelete(snap)}>
+                ×
               </button>
             </div>
           </div>
@@ -68,18 +74,15 @@ const s = {
     display: 'flex', flexDirection: 'column', gap: 8,
   },
   itemInfo: {},
-  itemLabel: { fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2 },
-  itemDate:  { fontSize: 11, color: '#718096' },
-  itemMeta:  { fontSize: 11, color: '#4a5568', marginTop: 2 },
+  itemLabel: { fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2, cursor: 'default' },
+  itemDate: { fontSize: 11, color: '#718096' },
+  itemMeta: { fontSize: 11, color: '#4a5568', marginTop: 2 },
   btnGroup: { display: 'flex', gap: 6 },
-  btnCompare: {
-    flex: 1, background: '#1e2030', border: '1px solid #3b82f6',
-    borderRadius: 6, color: '#3b82f6', fontSize: 12,
-    padding: '5px 0', cursor: 'pointer', fontWeight: 600,
+  iconBtn: {
+    width: 32, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    background: '#1e2030', border: '1px solid #3a3f55',
+    borderRadius: 6, color: '#cbd5e1', fontSize: 15,
+    padding: 0, cursor: 'pointer', fontWeight: 700,
   },
-  btnRestore: {
-    flex: 1, background: '#2a2d3e', border: '1px solid #3a3f55',
-    borderRadius: 6, color: '#a0aec0', fontSize: 12,
-    padding: '5px 0', cursor: 'pointer',
-  },
+  deleteBtn: { color: '#f87171', borderColor: '#7f1d1d', fontSize: 20, lineHeight: 1 },
 };

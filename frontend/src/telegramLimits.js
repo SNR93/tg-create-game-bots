@@ -1,11 +1,14 @@
-const MB = 1024 * 1024;
+import { randomConfigErrors } from './randomUtils';
 
+const MB = 1024 * 1024;
 export const TELEGRAM_LIMITS = {
   messageText: 4096,
   mediaCaption: 1024,
   commandDescription: 256,
   invoiceTitle: 32,
   invoiceDescription: 255,
+  pollQuestion: 300,
+  pollOption: 100,
   photoBytes: 10 * MB,
   fileBytes: 50 * MB,
   videoNoteSeconds: 60,
@@ -18,6 +21,40 @@ export const EDITOR_LIMITS = {
   url: 2048,
   comment: 10000,
 };
+
+export const SYSTEM_PLACEHOLDERS = {
+  'telegram.id': 'Telegram ID пользователя.',
+  'telegram.chat_id': 'ID чата, из которого пришло сообщение.',
+  'telegram.username': 'Username без @, если он указан в Telegram.',
+  'telegram.nickname': 'Username с @, если он указан, иначе имя пользователя.',
+  'telegram.first_name': 'Имя пользователя из профиля Telegram.',
+  'telegram.last_name': 'Фамилия пользователя из профиля Telegram.',
+  'telegram.full_name': 'Имя и фамилия одной строкой.',
+  'telegram.mention': 'Кликабельное упоминание/username или имя пользователя.',
+};
+
+export const SYSTEM_PLACEHOLDER_NAMES = Object.keys(SYSTEM_PLACEHOLDERS);
+
+export const SYSTEM_PLACEHOLDER_VARIABLES = Object.fromEntries(
+  SYSTEM_PLACEHOLDER_NAMES.map(name => [name, {
+    type: 'text',
+    defaultValue: ({
+      'telegram.id': '123456789',
+      'telegram.chat_id': '123456789',
+      'telegram.username': 'username',
+      'telegram.nickname': '@username',
+      'telegram.first_name': 'Имя',
+      'telegram.last_name': 'Фамилия',
+      'telegram.full_name': 'Имя Фамилия',
+      'telegram.mention': '@username',
+    })[name] || '',
+  }])
+);
+
+export function isSystemPlaceholderName(name) {
+  const normalized = String(name || '').trim().toLowerCase();
+  return SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
+}
 
 export function formatFileSize(bytes) {
   if (bytes < MB) return `${Math.ceil(bytes / 1024)} KB`;
@@ -66,6 +103,12 @@ export function validateScenarioText(nodes) {
       if (error) issues.push(`Ошибка: ${label}: ${error}`);
     }
   };
+  const checkVariableName = (name, label) => {
+    const trimmed = String(name || '').trim();
+    if (trimmed && isSystemPlaceholderName(trimmed)) {
+      issues.push(`Ошибка: ${label}: имя «${trimmed}» зарезервировано системным плейсхолдером.`);
+    }
+  };
   for (const node of nodes || []) {
     const label = `нода ${node.data?.nodeId || node.id}`;
     if (node.type === 'simpleMessageNode') checkContent(node.data || {}, label);
@@ -73,6 +116,26 @@ export function validateScenarioText(nodes) {
     if (node.type === 'mediaNode') (node.data.items || []).forEach((item, index) => checkContent(item, `${label}, медиа ${index + 1}`));
     if (node.type === 'customCommandNode') check(node.data.description, TELEGRAM_LIMITS.commandDescription, `${label}, описание команды`);
     if (node.type === 'promocodeNode') check(node.data.prompt, TELEGRAM_LIMITS.messageText, `${label}, приглашение ввести промокод`);
+    if (node.type === 'editMessageNode') check(node.data.text, TELEGRAM_LIMITS.messageText, `${label}, новый текст сообщения`);
+    if (node.type === 'pollNode') {
+      check(node.data.question, TELEGRAM_LIMITS.pollQuestion, `${label}, вопрос опроса`);
+      (node.data.options || []).forEach((option, index) => check(option, TELEGRAM_LIMITS.pollOption, `${label}, вариант опроса ${index + 1}`));
+      if ((node.data.options || []).filter(Boolean).length < 2 || (node.data.options || []).filter(Boolean).length > 10) issues.push(`Ошибка: ${label}: у опроса должно быть от 2 до 10 вариантов.`);
+    }
+    if (node.type === 'variableNode') (node.data.entries || []).forEach(entry => checkVariableName(entry.varName, `${label}, переменная`));
+    if (node.type === 'textInputNode') {
+      if (!node.data.varName) issues.push(`Ошибка: ${label}: укажите переменную для сохранения ответа.`);
+      checkVariableName(node.data.varName, `${label}, переменная для ответа`);
+    }
+    if (node.type === 'subscriptionCheckNode' && !node.data.channelId) issues.push(`Ошибка: ${label}: укажите канал для проверки подписки.`);
+    if (node.type === 'httpRequestNode') {
+      if (!/^https?:\/\//i.test(node.data.url || '')) issues.push(`Ошибка: ${label}: HTTP URL должен начинаться с http:// или https://.`);
+      checkVariableName(node.data.responseVar, `${label}, переменная ответа HTTP`);
+    }
+    if (node.type === 'globalVariableNode') (node.data.entries || []).forEach(entry => checkVariableName(entry.varName, `${label}, глобальная переменная`));
+    if (node.type === 'stickerNode' && !node.data.sticker) issues.push(`Ошибка: ${label}: укажите file_id или URL стикера.`);
+    if (node.type === 'locationNode' && (!Number.isFinite(+node.data.latitude) || +node.data.latitude < -90 || +node.data.latitude > 90 || !Number.isFinite(+node.data.longitude) || +node.data.longitude < -180 || +node.data.longitude > 180)) issues.push(`Ошибка: ${label}: координаты должны быть в диапазоне широта -90..90, долгота -180..180.`);
+    if (node.type === 'randomNode') randomConfigErrors(node.data).forEach(error => issues.push(`Ошибка: ${label}: ${error}`));
   }
   return issues;
 }

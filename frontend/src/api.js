@@ -1,27 +1,68 @@
 import { validateMediaFile } from './telegramLimits';
 
 const BASE = '/api';
-export async function listBots() {
-  const r = await fetch(`${BASE}/bots`);
-  return r.json();
+const AUTH_TOKEN_KEY = 'tgbot_auth_token';
+
+export function getAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_KEY) || '';
 }
 
-export async function createBot(name) {
-  const r = await fetch(`${BASE}/bots`, {
+export function logout() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  fetch(`${BASE}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
+}
+
+async function apiFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = getAuthToken();
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+  return fetch(url, { ...options, headers, credentials: 'include' });
+}
+
+async function readJson(response, fallbackMessage) {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || fallbackMessage);
+  return data;
+}
+
+export async function login(loginValue, password) {
+  const response = await apiFetch(`${BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ login: loginValue, password }),
   });
-  return r.json();
+  const data = await readJson(response, 'Не удалось войти');
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  return data.user;
+}
+
+export async function getCurrentUser() {
+  const response = await apiFetch(`${BASE}/auth/me`);
+  const data = await readJson(response, 'Сессия истекла');
+  return data.user;
+}
+
+export async function listBots() {
+  const r = await apiFetch(`${BASE}/bots`);
+  return readJson(r, 'Не удалось загрузить список ботов');
+}
+
+export async function createBot(name, comment = '') {
+  const r = await apiFetch(`${BASE}/bots`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, comment })
+  });
+  return readJson(r, 'Не удалось создать бота');
 }
 
 export async function getBot(id) {
-  const r = await fetch(`${BASE}/bots/${id}`);
-  return r.json();
+  const r = await apiFetch(`${BASE}/bots/${id}`);
+  return readJson(r, 'Не удалось загрузить бота');
 }
 
 export async function saveBot(id, data) {
-  const r = await fetch(`${BASE}/bots/${id}`, {
+  const r = await apiFetch(`${BASE}/bots/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
@@ -31,9 +72,18 @@ export async function saveBot(id, data) {
   return result;
 }
 
+export async function updateBotComment(id, comment) {
+  const r = await apiFetch(`${BASE}/bots/${id}/comment`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment }),
+  });
+  return readJson(r, 'Не удалось сохранить комментарий');
+}
+
 async function telegramRequest(id, path = '', options) {
   try {
-    const r = await fetch(`${BASE}/bots/${id}/telegram${path}`, options);
+    const r = await apiFetch(`${BASE}/bots/${id}/telegram${path}`, options);
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка управления Telegram-ботом');
     return data;
@@ -64,7 +114,7 @@ export function stopTelegramBot(id) {
 export async function uploadBotMedia(id, type, file) {
   const validationError = validateMediaFile(type, file);
   if (validationError) throw new Error(validationError);
-  const r = await fetch(`${BASE}/bots/${id}/media/${type}`, {
+  const r = await apiFetch(`${BASE}/bots/${id}/media/${type}`, {
     method: 'POST',
     headers: {
       'Content-Type': file.type || 'application/octet-stream',
@@ -78,16 +128,29 @@ export async function uploadBotMedia(id, type, file) {
 }
 
 export async function deleteBot(id) {
-  const r = await fetch(`${BASE}/bots/${id}`, { method: 'DELETE' });
-  return r.json();
+  const r = await apiFetch(`${BASE}/bots/${id}`, { method: 'DELETE' });
+  return readJson(r, 'Не удалось удалить бота');
 }
 
-export function downloadBotUrl(id) {
-  return `${BASE}/bots/${id}/download`;
+export async function downloadBot(id, name = 'bot') {
+  const response = await apiFetch(`${BASE}/bots/${id}/download`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Не удалось скачать JSON');
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${name || 'bot'}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function adminRequest(id, path = '', options) {
-  const response = await fetch(`${BASE}/bots/${id}/admin${path}`, options);
+  const response = await apiFetch(`${BASE}/bots/${id}/admin${path}`, options);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Ошибка административного API');
   return data;
@@ -157,6 +220,11 @@ export const listBotPromocodes = id => adminRequest(id, '/promocodes');
 export const saveBotPromocode = (id, code, data) => adminRequest(id, `/promocodes/${encodeURIComponent(code)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const deleteBotPromocode = (id, code) => adminRequest(id, `/promocodes/${encodeURIComponent(code)}`, { method: 'DELETE' });
 export const getBotAnalytics = id => adminRequest(id, '/analytics');
+// Global bot variables
+export const listBotGlobals = id => adminRequest(id, '/globals');
+export const setBotGlobal = (id, name, data) => adminRequest(id, `/globals/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+export const deleteBotGlobal = (id, name) => adminRequest(id, `/globals/${encodeURIComponent(name)}`, { method: 'DELETE' });
+
 export const listBotVersions = id => adminRequest(id, '/versions');
 export const createBotVersion = id => adminRequest(id, '/versions', { method: 'POST' });
 export const publishBotVersion = (id, versionId, rolloutPercentage = 100) => adminRequest(id, `/versions/${encodeURIComponent(versionId)}/publish`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rolloutPercentage }) });

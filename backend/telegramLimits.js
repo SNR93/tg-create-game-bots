@@ -1,4 +1,5 @@
 const { spawnSync } = require('child_process');
+const { randomConfigErrors } = require('./randomUtils');
 
 const MB = 1024 * 1024;
 
@@ -8,10 +9,28 @@ const TELEGRAM_LIMITS = {
   commandDescription: 256,
   invoiceTitle: 32,
   invoiceDescription: 255,
+  pollQuestion: 300,
+  pollOption: 100,
   photoBytes: 10 * MB,
   fileBytes: 50 * MB,
   videoNoteSeconds: 60,
 };
+
+const SYSTEM_PLACEHOLDER_NAMES = [
+  'telegram.id',
+  'telegram.chat_id',
+  'telegram.username',
+  'telegram.nickname',
+  'telegram.first_name',
+  'telegram.last_name',
+  'telegram.full_name',
+  'telegram.mention',
+];
+
+function isSystemPlaceholderName(name) {
+  const normalized = String(name || '').trim().toLowerCase();
+  return SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
+}
 
 function formatMb(bytes) {
   return `${Math.round(bytes / MB)} MB`;
@@ -26,7 +45,7 @@ function validateUploadedMedia(type, size, mimeType = '') {
   if (type === 'photo' && mimeType && !mimeType.startsWith('image/')) {
     return 'Для фотографии выберите изображение.';
   }
-  if (type === 'video' && mimeType && mimeType !== 'video/mp4') {
+  if ((type === 'video' || type === 'circle') && mimeType && mimeType !== 'video/mp4') {
     return 'Telegram отправляет видео как видео только в формате MP4.';
   }
   return null;
@@ -89,6 +108,12 @@ function validateScenario(bot, resolveLocalMediaPath) {
       }
     }
   };
+  const checkVariableName = (name, label) => {
+    const trimmed = String(name || '').trim();
+    if (trimmed && isSystemPlaceholderName(trimmed)) {
+      errors.push(`${label}: имя «${trimmed}» зарезервировано системным плейсхолдером.`);
+    }
+  };
 
   for (const node of bot.nodes || []) {
     const label = `Нода ${node.data?.nodeId || node.id}`;
@@ -103,14 +128,36 @@ function validateScenario(bot, resolveLocalMediaPath) {
       check(node.data?.description, TELEGRAM_LIMITS.commandDescription, `${label}, описание команды`);
     }
     if (node.type === 'promocodeNode') check(node.data?.prompt, TELEGRAM_LIMITS.messageText, `${label}, приглашение ввести промокод`);
+    if (node.type === 'editMessageNode') check(node.data?.text, TELEGRAM_LIMITS.messageText, `${label}, новый текст сообщения`);
+    if (node.type === 'pollNode') {
+      check(node.data?.question, TELEGRAM_LIMITS.pollQuestion, `${label}, вопрос опроса`);
+      (node.data?.options || []).forEach((option, index) => check(option, TELEGRAM_LIMITS.pollOption, `${label}, вариант опроса ${index + 1}`));
+      if ((node.data?.options || []).filter(Boolean).length < 2 || (node.data?.options || []).filter(Boolean).length > 10) errors.push(`${label}: у опроса должно быть от 2 до 10 вариантов.`);
+    }
+    if (node.type === 'variableNode') (node.data?.entries || []).forEach(entry => checkVariableName(entry.varName, `${label}, переменная`));
+    if (node.type === 'textInputNode') {
+      if (!node.data?.varName) errors.push(`${label}: укажите переменную для сохранения ответа.`);
+      checkVariableName(node.data?.varName, `${label}, переменная для ответа`);
+    }
+    if (node.type === 'subscriptionCheckNode' && !node.data?.channelId) errors.push(`${label}: укажите канал для проверки подписки.`);
+    if (node.type === 'httpRequestNode') {
+      if (!/^https?:\/\//i.test(node.data?.url || '')) errors.push(`${label}: HTTP URL должен начинаться с http:// или https://.`);
+      checkVariableName(node.data?.responseVar, `${label}, переменная ответа HTTP`);
+    }
+    if (node.type === 'globalVariableNode') (node.data?.entries || []).forEach(entry => checkVariableName(entry.varName, `${label}, глобальная переменная`));
+    if (node.type === 'stickerNode' && !node.data?.sticker) errors.push(`${label}: укажите file_id или URL стикера.`);
+    if (node.type === 'locationNode' && (!Number.isFinite(+node.data?.latitude) || +node.data.latitude < -90 || +node.data.latitude > 90 || !Number.isFinite(+node.data?.longitude) || +node.data.longitude < -180 || +node.data.longitude > 180)) errors.push(`${label}: координаты должны быть в диапазоне широта -90..90, долгота -180..180.`);
+    if (node.type === 'randomNode') randomConfigErrors(node.data).forEach(error => errors.push(`${label}: ${error}`));
   }
   return errors;
 }
 
 module.exports = {
   TELEGRAM_LIMITS,
+  SYSTEM_PLACEHOLDER_NAMES,
   assertText,
   assertVideoNoteDuration,
+  isSystemPlaceholderName,
   probeDuration,
   validateScenario,
   validateUploadedMedia,

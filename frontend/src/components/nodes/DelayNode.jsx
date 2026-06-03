@@ -2,6 +2,8 @@ import React from 'react';
 import { Handle, Position } from '@xyflow/react';
 
 export default function DelayNode({ data, selected }) {
+  const amount = data.amount ?? data.seconds ?? 3;
+  const unit = { seconds: 'сек', minutes: 'мин', hours: 'ч', days: 'дн' }[data.unit || 'seconds'];
   return (
     <div style={{
       ...s.wrap,
@@ -14,8 +16,8 @@ export default function DelayNode({ data, selected }) {
         <span style={s.label}>Задержка</span>
       </div>
       <div style={s.body}>
-        <span style={s.num}>{data.seconds ?? 3}</span>
-        <span style={s.unit}>сек</span>
+        <span style={s.num}>{amount}</span>
+        <span style={s.unit}>{unit}</span>
       </div>
       <div style={s.cont}>
         <span style={s.contLabel}>Продолжить</span>

@@ -25,7 +25,8 @@ export default function SimpleMessageInspector({ data, onUpdate, botId }) {
     setUploading(true);
     setUploadError('');
     try {
-      const uploaded = await uploadBotMedia(botId, type, file);
+      const uploadType = type === 'video' && data.asVideoNote ? 'circle' : type;
+      const uploaded = await uploadBotMedia(botId, uploadType, file);
       onUpdate({ url: uploaded.url, fileName: uploaded.fileName, duration: uploaded.duration, size: uploaded.size });
     } catch (e) {
       setUploadError(e.message);
@@ -52,6 +53,8 @@ export default function SimpleMessageInspector({ data, onUpdate, botId }) {
         {type === 'text' ? (
           <PlaceholderField as="textarea" style={s.textarea} value={data.text || ''} placeholder="Текст сообщения..." rows={4}
             maxLength={TELEGRAM_LIMITS.messageText}
+            showCounter
+            formatting
             onChange={e => onUpdate({ text: e.target.value })}
             onKeyDown={e => e.stopPropagation()} />
         ) : (

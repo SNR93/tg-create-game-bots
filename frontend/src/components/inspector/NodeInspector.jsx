@@ -14,9 +14,9 @@ import GroupInspector from './GroupInspector';
 import NodeHelp from './NodeHelp';
 import { PlaceholderProvider } from './PlaceholderField';
 import { getNodeMeta } from '../nodes/nodeCatalog';
-import { AchievementInspector, CheckpointInspector, FormulaInspector, InventoryInspector, InvokeCommandInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, SubscenarioInspector } from './GameplayInspectors';
+import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CheckpointInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector } from './GameplayInspectors';
 
-export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, botVariables, allBotVariables, botId, nodes }) {
+export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, botVariables, allBotVariables, placeholderVariables, botId, nodes }) {
   if (!node) return null;
   const meta = getNodeMeta(node.type);
 
@@ -36,7 +36,7 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, b
         <button style={s.closeBtn} onClick={onClose}>×</button>
       </div>
 
-      <PlaceholderProvider botVariables={botVariables}>
+      <PlaceholderProvider botVariables={placeholderVariables || allBotVariables || botVariables}>
       <div style={s.body}>
         {node.type === 'messageChainNode'  && <MessageChainInspector  data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}
         {node.type === 'startNode'         && <StartInspector         data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
@@ -49,14 +49,26 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, b
         {node.type === 'commentNode'      && <CommentInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'mediaNode'        && <MediaInspector        data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}
         {node.type === 'inventoryNode'    && <InventoryInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'inventoryViewNode' && <InventoryViewInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'formulaNode'      && <FormulaInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} botVariables={botVariables} />}
         {node.type === 'randomNode'       && <RandomInspector       data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'checkpointNode'   && <CheckpointInspector   data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'relationNode'     && <RelationInspector     data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'achievementNode'  && <AchievementInspector  data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'promocodeNode'    && <PromocodeInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'subscenarioNode'    && <SubscenarioInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
-        {node.type === 'invokeCommandNode'  && <InvokeCommandInspector  data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
+        {node.type === 'achievementsViewNode' && <AchievementsViewInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'promocodeNode'    && <PromocodeInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
+        {node.type === 'subscenarioNode'      && <SubscenarioInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
+        {node.type === 'invokeCommandNode'    && <InvokeCommandInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
+        {node.type === 'textInputNode'        && <TextInputInspector        data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'editMessageNode'       && <EditMessageInspector       data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'pollNode'              && <PollInspector              data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'stickerNode'           && <StickerInspector           data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'locationNode'          && <LocationInspector          data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'subscriptionCheckNode' && <SubscriptionCheckInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'httpRequestNode'      && <HttpRequestInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'loopNode'             && <LoopInspector             data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'breakLoopNode'        && <BreakLoopInspector        data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
+        {node.type === 'globalVariableNode'   && <GlobalVariableInspector   data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'purchaseNode'     && <PurchaseInspector     data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {['menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode'].includes(node.type) && <CommandEntryInspector type={node.type} data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'groupNode'         && <GroupInspector node={node} onUpdateData={p => onUpdate(node.id, p)} onUpdateStyle={style => onUpdateNode(node.id, { style: { ...node.style, ...style } })} />}
@@ -90,7 +102,7 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, b
 
 const s = {
   panel: {
-    position: 'absolute', top: 0, right: 0, bottom: 0, width: 340,
+    position: 'absolute', top: 0, right: 0, bottom: 0, width: 420,
     background: '#1a1c2a', borderLeft: '1px solid #2d3458',
     zIndex: 10, display: 'flex', flexDirection: 'column',
     boxShadow: '-4px 0 24px rgba(0,0,0,0.5)',

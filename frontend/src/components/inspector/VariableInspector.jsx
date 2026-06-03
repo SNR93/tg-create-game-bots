@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import CountedInput from './CountedInput';
-import { EDITOR_LIMITS } from '../../telegramLimits';
+import { EDITOR_LIMITS, isSystemPlaceholderName } from '../../telegramLimits';
 
 const ACTIONS_BOOL = [['set','= Установить']];
 const ACTIONS_NUM  = [['set','= Установить'],['increment','+ Прибавить'],['decrement','− Вычесть']];
 
 function EmptyEntry(type = 'boolean') {
-  return { id: uuidv4(), varName: '', varType: type, action: 'set', value: type === 'number' ? 0 : false };
+  return { id: uuidv4(), varName: '', varType: type, action: 'set', value: type === 'number' ? 0 : (type === 'text' ? '' : false) };
 }
 
 // Shared True/False buttons component (also exported for BranchingInspector)
@@ -30,13 +30,18 @@ export default function VariableInspector({ data, onUpdate, botVariables = {} })
   const [searchOpen, setSearchOpen] = useState(false);
   const [newEntry, setNewEntry] = useState(EmptyEntry());
   const [nameError, setNameError] = useState('');
-  const botVarNames = Object.keys(botVariables);
+  const reservedNames = Object.keys(botVariables);
+  const botVarNames = reservedNames.filter(name => !isSystemPlaceholderName(name));
 
   function setEntries(list) { onUpdate({ entries: list }); }
 
   function addNew() {
     const varName = newEntry.varName.trim();
     if (!varName) return;
+    if (isSystemPlaceholderName(varName)) {
+      setNameError(`Имя «${varName}» зарезервировано системным плейсхолдером`);
+      return;
+    }
     if (hasVariable(varName)) {
       setNameError(`Переменная «${varName}» уже существует`);
       return;
@@ -63,6 +68,15 @@ export default function VariableInspector({ data, onUpdate, botVariables = {} })
       entry &&
       patch.varName !== undefined &&
       patch.varName !== entry.varName &&
+      isSystemPlaceholderName(patch.varName)
+    ) {
+      setNameError(`Имя «${patch.varName}» зарезервировано системным плейсхолдером`);
+      return;
+    }
+    if (
+      entry &&
+      patch.varName !== undefined &&
+      patch.varName !== entry.varName &&
       hasVariable(patch.varName, entry.varName)
     ) {
       setNameError(`Переменная «${patch.varName}» уже существует`);
@@ -81,7 +95,7 @@ export default function VariableInspector({ data, onUpdate, botVariables = {} })
     const normalized = name.trim().toLowerCase();
     const excluded = exceptName.trim().toLowerCase();
     if (!normalized) return false;
-    return botVarNames.some(n =>
+    return reservedNames.some(n =>
       n.toLowerCase() === normalized &&
       n.toLowerCase() !== excluded
     ) || entries.some(e =>
@@ -104,9 +118,10 @@ export default function VariableInspector({ data, onUpdate, botVariables = {} })
             onChange={e => { setNameError(''); setNewEntry(v => ({ ...v, varName: e.target.value })); }}
             onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNew(); }} />
           <select style={s.sel} value={newEntry.varType}
-            onChange={e => setNewEntry(v => ({ ...v, varType: e.target.value, value: e.target.value === 'number' ? 0 : false, action: 'set' }))}>
+            onChange={e => setNewEntry(v => ({ ...v, varType: e.target.value, value: e.target.value === 'number' ? 0 : (e.target.value === 'text' ? '' : false), action: 'set' }))}>
             <option value="boolean">True / False</option>
             <option value="number">Число (123)</option>
+            <option value="text">Текст</option>
           </select>
         </div>
         <select style={{ ...s.sel, width: '100%', marginBottom: 6 }} value={newEntry.action}
@@ -119,6 +134,11 @@ export default function VariableInspector({ data, onUpdate, botVariables = {} })
           ? <input type="number" style={{ ...s.inp, marginBottom: 6 }} value={newEntry.value}
               onChange={e => setNewEntry(v => ({ ...v, value: +e.target.value }))}
               onKeyDown={e => e.stopPropagation()} />
+          : newEntry.varType === 'text'
+            ? <CountedInput style={{ ...s.inp, marginBottom: 6 }} value={newEntry.value || ''} maxLength={EDITOR_LIMITS.shortText}
+                placeholder="Текстовое значение"
+                onChange={e => setNewEntry(v => ({ ...v, value: e.target.value }))}
+                onKeyDown={e => e.stopPropagation()} />
           : <BoolButtons value={newEntry.value} onChange={v => setNewEntry(p => ({ ...p, value: v }))} />}
         <button style={s.addBtn} onClick={addNew}>+ Добавить</button>
         {nameError && <div style={s.error}>{nameError}</div>}
@@ -171,7 +191,7 @@ function EntryCard({ entry, onPatch, onDel }) {
     <div style={s.card}>
       <div style={s.cardHead}>
         <span style={s.cardName}>{entry.varName || '(без имени)'}</span>
-        <span style={s.cardType}>{entry.varType === 'number' ? '123' : 'T/F'}</span>
+        <span style={s.cardType}>{entry.varType === 'number' ? '123' : entry.varType === 'text' ? 'TXT' : 'T/F'}</span>
 
         <button style={s.delBtn} onClick={onDel}>✕</button>
       </div>
@@ -188,6 +208,11 @@ function EntryCard({ entry, onPatch, onDel }) {
           ? <input type="number" style={s.inp} value={entry.value}
               onChange={e => onPatch({ value: +e.target.value })}
               onKeyDown={e => e.stopPropagation()} />
+          : entry.varType === 'text'
+            ? <CountedInput style={s.inp} value={entry.value || ''} maxLength={EDITOR_LIMITS.shortText}
+                placeholder="Текст"
+                onChange={e => onPatch({ value: e.target.value })}
+                onKeyDown={e => e.stopPropagation()} />
           : <BoolButtons value={entry.value} onChange={v => onPatch({ value: v })} />}
       </div>
     </div>

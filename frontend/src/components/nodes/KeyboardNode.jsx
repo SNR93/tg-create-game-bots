@@ -94,6 +94,14 @@ export default function KeyboardNode({ id, data, selected }) {
         );
       })}
 
+      {(data.timeout > 0) && (
+        <div style={s.timeoutRow}>
+          <span style={s.muted}>⏱ Таймаут {data.timeout}с</span>
+          <Handle type="source" position={Position.Right} id="timeout"
+            style={{ ...s.hBase, right: -6, background: '#f6ad55', borderColor: '#0f172a' }} />
+        </div>
+      )}
+
       {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}
     </div>
   );
@@ -127,4 +135,6 @@ const s = {
     transform: 'none', transition: 'opacity .15s',
   },
   id: { padding: '4px 14px 7px', fontSize: 10, color: '#4a5568', textAlign: 'center' },
+  timeoutRow: { position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 14px', borderTop: '1px solid #3a3f55' },
+  muted: { fontSize: 11, color: '#718096' },
 };

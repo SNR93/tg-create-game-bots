@@ -1,7 +1,7 @@
 import React from 'react';
 import CharacterCounter from './CharacterCounter';
 
-export default function CountedInput({ value = '', maxLength, style, groupStyle, onKeyDown, ...props }) {
+export default function CountedInput({ value = '', maxLength, style, groupStyle, onKeyDown, showCounter = false, ...props }) {
   return (
     <div style={{ ...s.group, ...groupStyle }}>
       <input
@@ -14,7 +14,7 @@ export default function CountedInput({ value = '', maxLength, style, groupStyle,
           onKeyDown?.(event);
         }}
       />
-      <CharacterCounter value={value} maxLength={maxLength} />
+      {showCounter && <CharacterCounter value={value} maxLength={maxLength} />}
     </div>
   );
 }

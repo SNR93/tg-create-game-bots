@@ -25,12 +25,13 @@ async function deletePromocode(botId, code) {
 }
 
 async function getAnalytics(botId) {
-  const [events, nodes, choices, referrals, purchases] = await Promise.all([
+  const [events, nodes, choices, referrals, purchases, daily] = await Promise.all([
     pool.query(`SELECT event_type, COUNT(*)::int AS count FROM analytics_events WHERE bot_id = $1 GROUP BY event_type ORDER BY count DESC`, [botId]),
     pool.query(`SELECT node_id, COUNT(*)::int AS count FROM analytics_events WHERE bot_id = $1 AND event_type = 'node_enter' GROUP BY node_id ORDER BY count DESC LIMIT 100`, [botId]),
     pool.query(`SELECT node_id, choice_label, COUNT(*)::int AS count FROM player_choices WHERE bot_id = $1 GROUP BY node_id, choice_label ORDER BY count DESC LIMIT 100`, [botId]),
     pool.query(`SELECT COUNT(*)::int AS count FROM players WHERE bot_id = $1 AND referrer_id IS NOT NULL`, [botId]),
     pool.query(`SELECT COUNT(*)::int AS count, COALESCE(SUM(price_stars), 0)::int AS stars FROM purchases WHERE bot_id = $1 AND status = 'paid'`, [botId]),
+    pool.query(`SELECT created_at::date AS day, COUNT(*)::int AS count FROM analytics_events WHERE bot_id = $1 AND created_at >= NOW() - INTERVAL '30 days' GROUP BY created_at::date ORDER BY day`, [botId]),
   ]);
   return {
     events: events.rows,
@@ -38,6 +39,7 @@ async function getAnalytics(botId) {
     choices: choices.rows,
     referrals: referrals.rows[0].count,
     purchases: purchases.rows[0],
+    daily: daily.rows,
   };
 }
 

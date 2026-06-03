@@ -11,8 +11,24 @@ export default function ContextMenu({ x, y, onSelect, onClose }) {
   const safeX = x + menuW > window.innerWidth ? x - menuW : x;
   const safeY = y + menuH > window.innerHeight ? y - menuH : y;
 
-  const filtered = ADDABLE_NODES.filter(n =>
-    !query.trim() || `${n.label} ${n.desc}`.toLowerCase().includes(query.toLowerCase())
+  const aliases = {
+    keyboardNode: 'клавиатура кнопки выбор',
+    branchingNode: 'условие ветвление',
+    formulaNode: 'формула калькулятор',
+    randomNode: 'рандом случайность',
+    delayNode: 'пауза ожидание',
+  };
+  const preferred = ['simpleMessageNode', 'messageChainNode', 'keyboardNode'];
+  const orderedNodes = !query.trim()
+    ? [...ADDABLE_NODES].sort((a, b) => {
+        const ai = preferred.indexOf(a.type);
+        const bi = preferred.indexOf(b.type);
+        if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+        return 0;
+      })
+    : ADDABLE_NODES;
+  const filtered = orderedNodes.filter(n =>
+    !query.trim() || `${n.label} ${n.desc} ${aliases[n.type] || ''}`.toLowerCase().includes(query.toLowerCase())
   );
 
   useEffect(() => {

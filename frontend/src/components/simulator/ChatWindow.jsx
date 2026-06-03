@@ -5,9 +5,13 @@ const ICONS = { text:'', photo:'🖼', video:'▶', voice:'🎤', audio:'🎵', 
 export default function ChatWindow({ chatMsgs, status, delayInfo, onSend, onButtonClick, onSkipDelay, commands, onCommand, botName }) {
   const [input, setInput] = useState('');
   const [commandsOpen, setCommandsOpen] = useState(false);
+  const messagesRef = useRef(null);
   const bottomRef = useRef(null);
+  const stickToBottomRef = useRef(true);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMsgs]);
+  useEffect(() => {
+    if (stickToBottomRef.current) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMsgs]);
 
   function send() {
     if (!input.trim()) return;
@@ -29,7 +33,14 @@ export default function ChatWindow({ chatMsgs, status, delayInfo, onSend, onButt
       </div>
 
       {/* Messages */}
-      <div style={s.messages}>
+      <div
+        ref={messagesRef}
+        style={s.messages}
+        onScroll={event => {
+          const el = event.currentTarget;
+          stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+      >
         {chatMsgs.length === 0 && (
           <div style={s.empty}>Чат пустой. Запустите сценарий.</div>
         )}
@@ -119,12 +130,17 @@ function InlineKeyboard({ msg, status, onButtonClick }) {
         {msg.title && <div style={s.kbTitle}>{msg.title}</div>}
         <div style={s.kbGrid}>
           {(msg.buttons || []).map(btn => (
-            <button key={btn.id}
-              style={{ ...s.kbBtn, background: clicked === btn.id ? '#2b5278' : '#17212b', opacity: clicked && clicked !== btn.id ? 0.5 : 1 }}
-              disabled={!!clicked || status !== 'waiting_input'}
-              onClick={() => { setClicked(btn.id); onButtonClick?.(btn.id, btn.label); }}>
-              {btn.label}
-            </button>
+            btn.type === 'url'
+              ? <a key={btn.id} href={btn.url} target="_blank" rel="noreferrer"
+                  style={{ ...s.kbBtn, textDecoration: 'none', color: '#38bdf8', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  {btn.label} <span style={{ fontSize: 10 }}>↗</span>
+                </a>
+              : <button key={btn.id}
+                  style={{ ...s.kbBtn, background: clicked === btn.id ? '#2b5278' : '#17212b', opacity: clicked && clicked !== btn.id ? 0.5 : 1 }}
+                  disabled={!!clicked || status !== 'waiting_input'}
+                  onClick={() => { setClicked(btn.id); onButtonClick?.(btn.id, btn.label); }}>
+                  {btn.label}
+                </button>
           ))}
         </div>
         <div style={s.ts}>{new Date(msg.ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</div>
@@ -172,17 +188,35 @@ function UserMsg({ msg }) {
   );
 }
 
+function sanitizeTelegramHtml(text) {
+  const raw = String(text || '');
+  const tag = /<\/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler)\s*>|<a\s+href=(?:"[^"]*"|'[^']*')\s*>/gi;
+  let cursor = 0;
+  let html = '';
+  let match;
+  while ((match = tag.exec(raw))) {
+    html += raw.slice(cursor, match.index).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    html += match[0];
+    cursor = match.index + match[0].length;
+  }
+  html += raw.slice(cursor).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return html.replace(/<tg-spoiler>/gi, '<span class="tg-spoiler">').replace(/<\/tg-spoiler>/gi, '</span>');
+}
+
 function MsgContent({ msg, revealed, onReveal }) {
   const blurStyle = msg.protected && !revealed ? {
     filter: 'blur(10px)', cursor: 'pointer', userSelect: 'none',
   } : {};
 
   if (msg.type === 'text') {
+    const hasFormatting = /<\/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler)\s*>|<a\s+href=/i.test(String(msg.text || ''));
     return (
       <div>
-        <span style={{ ...s.msgText, ...blurStyle }} onClick={msg.protected && !revealed ? onReveal : undefined}>
-          {msg.text || <em style={{ color: '#718096' }}>(пусто)</em>}
-        </span>
+        {hasFormatting
+          ? <span style={{ ...s.msgText, ...blurStyle }} onClick={msg.protected && !revealed ? onReveal : undefined} dangerouslySetInnerHTML={{ __html: sanitizeTelegramHtml(msg.text) }} />
+          : <span style={{ ...s.msgText, ...blurStyle }} onClick={msg.protected && !revealed ? onReveal : undefined}>
+              {msg.text || <em style={{ color: '#718096' }}>(пусто)</em>}
+            </span>}
         {msg.protected && !revealed && <div style={s.spoilerHint}>👆 Нажмите для просмотра</div>}
       </div>
     );
@@ -261,7 +295,7 @@ const s = {
   userBubbleWrap: { display: 'flex', justifyContent: 'flex-end' },
   userBubble: { background: '#2b5278', borderRadius: '12px 12px 2px 12px', padding: '8px 12px', maxWidth: '80%', wordBreak: 'break-word' },
   userText: { fontSize: 14, color: '#e2e8f0' },
-  msgText: { fontSize: 14, color: '#e2e8f0', display: 'block' },
+  msgText: { fontSize: 14, color: '#e2e8f0', display: 'block', whiteSpace: 'pre-wrap' },
   ts: { fontSize: 10, color: '#718096', marginTop: 3 },
   notif: { textAlign: 'center', fontSize: 12, color: '#718096', background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '5px 12px', alignSelf: 'center' },
   spoilerHint: { fontSize: 11, color: '#3b82f6', marginTop: 4 },

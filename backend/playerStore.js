@@ -248,7 +248,39 @@ async function resetPlayer(botId, playerId) {
 }
 
 async function deletePlayer(botId, playerId) {
-  await pool.query(`DELETE FROM players WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, String(playerId)]);
+  const normalizedPlayerId = String(playerId);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const player = (await client.query(`
+      SELECT bot_id, telegram_user_id, chat_id FROM players
+      WHERE bot_id = $1 AND telegram_user_id = $2
+      FOR UPDATE
+    `, [botId, normalizedPlayerId])).rows[0] || null;
+
+    await client.query(`
+      DELETE FROM scheduled_jobs
+      WHERE bot_id = $1
+        AND (payload ->> 'playerId' = $2 OR (payload -> 'playerIds') ? $2)
+    `, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM analytics_events WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM purchases WHERE bot_id = $1 AND telegram_user_id = $2 AND status <> 'paid'`, [botId, normalizedPlayerId]);
+    await client.query(`UPDATE players SET referrer_id = NULL, updated_at = NOW() WHERE bot_id = $1 AND referrer_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_promocodes WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_variables WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_inventory WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_relations WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_choices WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_achievements WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM players WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query('COMMIT');
+    return player;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function recordChoice(botId, playerId, nodeId, key, label) {
@@ -263,6 +295,35 @@ async function recordEvent(botId, playerId, eventType, nodeId, payload = {}) {
     INSERT INTO analytics_events (bot_id, telegram_user_id, event_type, node_id, payload)
     VALUES ($1, $2, $3, $4, $5::jsonb)
   `, [botId, playerId ? String(playerId) : null, eventType, nodeId || null, JSON.stringify(payload)]);
+}
+
+async function loadBotVariables(botId) {
+  const result = await pool.query(
+    `SELECT var_name, var_type, value FROM bot_variables WHERE bot_id = $1 ORDER BY var_name`,
+    [botId]
+  );
+  return Object.fromEntries(result.rows.map(r => [r.var_name, { type: r.var_type, value: r.value }]));
+}
+
+async function listBotVariables(botId) {
+  const result = await pool.query(
+    `SELECT var_name, var_type, value FROM bot_variables WHERE bot_id = $1 ORDER BY var_name`,
+    [botId]
+  );
+  return result.rows.map(r => ({ name: r.var_name, type: r.var_type, value: r.value }));
+}
+
+async function setBotVariable(botId, name, type, value) {
+  await pool.query(`
+    INSERT INTO bot_variables (bot_id, var_name, var_type, value, updated_at)
+    VALUES ($1, $2, $3, $4::jsonb, NOW())
+    ON CONFLICT (bot_id, var_name) DO UPDATE SET
+      var_type = EXCLUDED.var_type, value = EXCLUDED.value, updated_at = NOW()
+  `, [botId, name, type, JSON.stringify(value)]);
+}
+
+async function deleteBotVariable(botId, name) {
+  await pool.query(`DELETE FROM bot_variables WHERE bot_id = $1 AND var_name = $2`, [botId, name]);
 }
 
 module.exports = {
@@ -280,6 +341,7 @@ module.exports = {
   redeemPromocode,
   resetPlayer,
   saveVariables,
+  setBotVariable,
   setCurrentNode,
   setCheckpoint,
   setInventoryItem,
@@ -287,4 +349,7 @@ module.exports = {
   setRelation,
   setVariable,
   unlockAchievement,
+  deleteBotVariable,
+  listBotVariables,
+  loadBotVariables,
 };

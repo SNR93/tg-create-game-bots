@@ -21,6 +21,14 @@ export default function VariablePanel({ runtimeVars, patchVar }) {
                 <button style={{ ...s.boolBtn, background: !v.value ? '#ef4444' : '#2a2d3e', color: !v.value ? '#fff' : '#718096' }}
                   onClick={() => patchVar(name, false)}>false</button>
               </div>
+            ) : v.type === 'text' ? (
+              <input
+                type="text"
+                style={s.textInput}
+                value={v.value ?? ''}
+                onChange={e => patchVar(name, e.target.value)}
+                onKeyDown={e => e.stopPropagation()}
+              />
             ) : (
               <div style={s.numRow}>
                 <button style={s.numBtn} onClick={() => patchVar(name, (+v.value || 0) - 1)}>−</button>
@@ -54,4 +62,5 @@ const s = {
   numRow: { display: 'flex', alignItems: 'center', gap: 6 },
   numBtn: { background: '#2a2d3e', border: '1px solid #3a3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 16, width: 30, height: 30, flexShrink: 0, cursor: 'pointer' },
   numInput: { width: 92, minWidth: 92, maxWidth: 92, background: '#0e0f18', border: '1px solid #3a3f55', borderRadius: 6, color: '#f6ad55', fontSize: 16, fontWeight: 700, textAlign: 'center', padding: '4px 0', outline: 'none' },
+  textInput: { width: '100%', boxSizing: 'border-box', background: '#0e0f18', border: '1px solid #3a3f55', borderRadius: 6, color: '#f6ad55', fontSize: 13, fontWeight: 600, padding: '7px 8px', outline: 'none' },
 };

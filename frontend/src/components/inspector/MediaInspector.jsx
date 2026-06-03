@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { uploadBotMedia } from '../../api';
 import { EDITOR_LIMITS, mediaRuleText, validateVideoNoteDuration } from '../../telegramLimits';
-import CharacterCounter from './CharacterCounter';
 
 const TYPES = [
   { key: 'photo', icon: '🖼', label: 'Фото' },
@@ -126,7 +125,8 @@ function MediaCard({ item, index, total, botId, onPatch, onDelete, onMove }) {
     setError('');
     try {
       const type = detectType(file);
-      const uploaded = await uploadBotMedia(botId, type, file);
+      const uploadType = type === 'video' && item.asVideoNote ? 'circle' : type;
+      const uploaded = await uploadBotMedia(botId, uploadType, file);
       onPatch({ type, url: uploaded.url, fileName: uploaded.fileName, duration: uploaded.duration, size: uploaded.size });
     } catch (uploadError) {
       setError(uploadError.message);
@@ -191,11 +191,8 @@ function MediaCard({ item, index, total, botId, onPatch, onDelete, onMove }) {
 }
 
 function Input({ value, placeholder, onChange, maxLength }) {
-  return <div style={s.inputGroup}>
-    <input style={s.input} value={value} maxLength={maxLength} placeholder={placeholder}
-      onChange={event => onChange(event.target.value)} onKeyDown={event => event.stopPropagation()} />
-    <CharacterCounter value={value} maxLength={maxLength} />
-  </div>;
+  return <input style={s.input} value={value} maxLength={maxLength} placeholder={placeholder}
+    onChange={event => onChange(event.target.value)} onKeyDown={event => event.stopPropagation()} />;
 }
 
 function Section({ label, children }) {

@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { makeMessage } from '../nodes/MessageChainNode';
 import { uploadBotMedia } from '../../api';
 import PlaceholderField from './PlaceholderField';
-import CharacterCounter from './CharacterCounter';
 import { EDITOR_LIMITS, TELEGRAM_LIMITS, mediaRuleText, validateVideoNoteDuration } from '../../telegramLimits';
 
 const TYPES = [
@@ -17,6 +16,7 @@ const TYPES = [
 
 export default function MessageChainInspector({ data, onUpdate, botId }) {
   const messages = data.messages || [];
+  const limitWarning = messageLimitWarning(messages);
 
   function updMessages(msgs) { onUpdate({ messages: msgs }); }
 
@@ -54,6 +54,7 @@ export default function MessageChainInspector({ data, onUpdate, botId }) {
 
       {/* Messages list */}
       <Section label={`Сообщения (${messages.length})`}>
+        {limitWarning && <div style={s.warning}>{limitWarning}</div>}
         {messages.length === 0 && (
           <div style={s.empty}>Нет сообщений. Добавьте ниже.</div>
         )}
@@ -80,6 +81,19 @@ export default function MessageChainInspector({ data, onUpdate, botId }) {
       </Section>
     </div>
   );
+}
+
+function messageLimitWarning(messages) {
+  if ((messages || []).length > 20) return 'Предупреждение: в цепочке больше 20 сообщений. Telegram может начать ограничивать частую отправку одному пользователю, добавьте задержки.';
+  let burst = 0;
+  for (const message of messages || []) {
+    if ((+message.delay || 0) <= 0) burst += 1;
+    else burst = 1;
+    if (burst >= 6) return 'Предупреждение: 6 и более сообщений подряд без задержки могут попасть под ограничения Telegram. Добавьте паузы 1-2 секунды.';
+  }
+  const totalDelay = (messages || []).reduce((sum, message) => sum + (+message.delay || 0), 0);
+  if ((messages || []).length >= 12 && totalDelay < 5) return 'Предупреждение: много сообщений за короткое время. Лучше распределить их задержками.';
+  return '';
 }
 
 function MessageCard({ msg, index, total, onPatch, onDelete, onMove, botId }) {
@@ -125,6 +139,8 @@ function MessageCard({ msg, index, total, onPatch, onDelete, onMove, botId }) {
               placeholder="Введите текст сообщения..."
               rows={4}
               maxLength={TELEGRAM_LIMITS.messageText}
+              showCounter
+              formatting
               onChange={e => onPatch({ text: e.target.value })}
               onKeyDown={e => e.stopPropagation()}
             />
@@ -136,7 +152,7 @@ function MessageCard({ msg, index, total, onPatch, onDelete, onMove, botId }) {
                 placeholder="URL файла (https://...)"
                 onChange={v => onPatch({ url: v })}
               />
-              <FileInput botId={botId} type={msg.type} accept={fileAccept(msg.type)} onFile={uploaded => onPatch(uploaded)} />
+              <FileInput botId={botId} type={msg.type} asVideoNote={msg.asVideoNote} accept={fileAccept(msg.type)} onFile={uploaded => onPatch(uploaded)} />
               {msg.fileName && <div style={s.fileName}>📎 {msg.fileName}</div>}
               <div style={s.note}>{mediaRuleText(msg.type, msg.asVideoNote)}</div>
             </div>
@@ -191,12 +207,11 @@ function InpText({ value, placeholder, onChange, maxLength }) {
         onChange={e => onChange(e.target.value)}
         onKeyDown={e => e.stopPropagation()}
       />
-      <CharacterCounter value={value} maxLength={maxLength} />
     </div>
   );
 }
 
-function FileInput({ botId, type, accept, onFile }) {
+function FileInput({ botId, type, asVideoNote, accept, onFile }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
@@ -207,7 +222,8 @@ function FileInput({ botId, type, accept, onFile }) {
     setUploading(true);
     setError('');
     try {
-      const uploaded = await uploadBotMedia(botId, type, file);
+      const uploadType = type === 'video' && asVideoNote ? 'circle' : type;
+      const uploaded = await uploadBotMedia(botId, uploadType, file);
       onFile({ url: uploaded.url, fileName: uploaded.fileName, duration: uploaded.duration, size: uploaded.size });
     } catch (uploadError) {
       setError(uploadError.message);
@@ -244,6 +260,7 @@ const s = {
   section: { padding: '14px 16px', borderBottom: '1px solid #222436' },
   sectionLabel: { fontSize: 11, fontWeight: 700, color: '#718096', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
   empty: { color: '#4a5568', fontSize: 12, textAlign: 'center', padding: '8px 0' },
+  warning: { color: '#fbbf24', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 6, fontSize: 12, lineHeight: 1.45, padding: '8px 9px', marginBottom: 8 },
   addGrid: { display: 'flex', flexWrap: 'wrap', gap: 6 },
   addBtn: {
     background: '#1e2030', border: '1px solid #3a3f55', borderRadius: 6,
