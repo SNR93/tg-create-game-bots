@@ -420,7 +420,7 @@ export default function EditorPage({ user }) {
   const [searchQuery, setSearchQuery]             = useState('');
   const [showSearch, setShowSearch]               = useState(false);
   const [highlightedNodeId, setHighlightedNodeId] = useState(null);
-  const [nodesExpanded, setNodesExpanded]         = useState(false);
+  const [nodesExpanded, setNodesExpanded]         = useState(true);
   const [autoSaveStatus, setAutoSaveStatus]       = useState(null); // null | 'saved' | 'error'
   const [autoSaveEnabled, setAutoSaveEnabled]     = useState(true);
   const [autoSaveMinutes, setAutoSaveMinutes]     = useState('10');
@@ -459,7 +459,7 @@ export default function EditorPage({ user }) {
       setBot(data);
       setBotName(data.name);
       setBotLore(data.lore || { text: '' });
-      const ns = data.nodes || [];
+      const ns = (data.nodes || []).map(node => ({ ...node, data: { ...node.data, __expanded: true } }));
       const es = removeDuplicateConnections((data.edges || []).map(edge => normalizeEdge(edge, ns)), ns);
       setNodes(ns);
       setEdges(es);
@@ -649,12 +649,55 @@ export default function EditorPage({ user }) {
     if (contextMenu) addNode(type, name, contextMenu.flowPos, contextMenu.pendingConnection);
   }
 
+  const preToggleHeightsRef = useRef(null);
+
   function toggleNodesExpanded() {
+    const rf = rfRef.current;
+    const preNodes = rf ? rf.getNodes() : nodesRef.current;
+    preToggleHeightsRef.current = preNodes.map(n => ({
+      id: n.id,
+      y: n.position.y,
+      height: n.measured?.height || 0,
+      parentId: n.parentId,
+    }));
+
     setNodesExpanded(value => {
       const next = !value;
       setNodes(nds => nds.map(node => ({ ...node, data: { ...node.data, __expanded: next } })));
       return next;
     });
+
+    // After ReactFlow remeasures nodes, shift Y positions to preserve gaps
+    setTimeout(() => {
+      const rf2 = rfRef.current;
+      const preData = preToggleHeightsRef.current;
+      if (!rf2 || !preData) return;
+      preToggleHeightsRef.current = null;
+
+      const postNodes = rf2.getNodes();
+      const postHeights = new Map(postNodes.map(n => [n.id, n.measured?.height || 0]));
+
+      const sorted = [...preData]
+        .filter(d => !d.parentId)
+        .sort((a, b) => a.y - b.y);
+
+      let cumulativeDelta = 0;
+      const adjustments = new Map();
+      for (const pre of sorted) {
+        adjustments.set(pre.id, cumulativeDelta);
+        const postH = postHeights.get(pre.id) || pre.height;
+        cumulativeDelta += (postH - pre.height);
+      }
+
+      if ([...adjustments.values()].some(d => Math.abs(d) > 0.5)) {
+        skipHistoryRef.current = true;
+        setNodes(nds => nds.map(n => {
+          const d = adjustments.get(n.id);
+          if (!d) return n;
+          return { ...n, position: { x: n.position.x, y: n.position.y + d } };
+        }));
+      }
+    }, 250);
   }
 
   function createGroupFromSelection() {

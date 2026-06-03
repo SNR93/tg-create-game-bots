@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
+const { randomUUID } = crypto;
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
@@ -16,6 +17,7 @@ const app = express();
 const PORT = 3001;
 const BOTS_DIR = path.join(__dirname, 'data', 'bots');
 const MEDIA_DIR = path.join(__dirname, 'data', 'media');
+const MAX_NODE_HISTORY = 50;
 const TELEGRAM_BACKUP_SETTINGS_PATH = path.join(__dirname, 'data', 'telegram-backup.json');
 const AUTH_COOKIE = 'tgbot_session';
 const AUTH_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
@@ -23,6 +25,7 @@ const AUTH_SECRET = process.env.AUTH_SECRET || crypto.randomBytes(32).toString('
 const MEDIA_FOLDERS = {
   photo: 'images',
   image: 'images',
+  sticker: 'stickers',
   video: 'video',
   circle: 'circle',
   voice: 'voice',
@@ -267,6 +270,23 @@ app.use('/api/media', express.static(MEDIA_DIR));
 
 function getBotPath(id) {
   return path.join(BOTS_DIR, `${id}.json`);
+}
+
+function getNodeHistoryPath(botId) {
+  return path.join(BOTS_DIR, `${botId}-history.json`);
+}
+function readNodeHistory(botId) {
+  const p = getNodeHistoryPath(botId);
+  if (!fs.existsSync(p)) return {};
+  try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return {}; }
+}
+function writeNodeHistory(botId, history) {
+  fs.writeFileSync(getNodeHistoryPath(botId), JSON.stringify(history, null, 2));
+}
+function stripNodeUiFields(data) {
+  if (!data || typeof data !== 'object') return data;
+  const { __expanded, __debugActive, ...rest } = data;
+  return rest;
 }
 
 function safeSegment(value) {
@@ -581,12 +601,100 @@ app.put('/api/bots/:id', (req, res) => {
     };
     const validationErrors = validateScenario(updated, url => telegramRuntime.localMediaPath(url));
     if (validationErrors.length) return res.status(400).json({ error: validationErrors.join('\n') });
+
+    // Auto-record node history for changed nodes
+    try {
+      const prevNodeMap = new Map((existing.nodes || []).map(n => [n.id, n]));
+      const history = readNodeHistory(existing.id);
+      const now = new Date().toISOString();
+      const author = req.user?.login || 'unknown';
+      let historyChanged = false;
+      for (const node of (updated.nodes || [])) {
+        const prev = prevNodeMap.get(node.id);
+        const newData = stripNodeUiFields(node.data);
+        const prevData = stripNodeUiFields(prev?.data);
+        if (JSON.stringify(prevData) === JSON.stringify(newData)) continue;
+        if (!history[node.id]) history[node.id] = [];
+        history[node.id].push({ id: randomUUID(), ts: now, author, comment: '', data: newData });
+        if (history[node.id].length > MAX_NODE_HISTORY) {
+          history[node.id] = history[node.id].slice(-MAX_NODE_HISTORY);
+        }
+        historyChanged = true;
+      }
+      if (historyChanged) writeNodeHistory(existing.id, history);
+    } catch (histErr) {
+      console.error('Node history recording failed:', histErr.message);
+    }
+
     fs.writeFileSync(p, JSON.stringify(updated, null, 2));
     telegramRuntime.refreshCommands(req.params.id).catch(error => console.error('Telegram commands refresh failed:', error.message));
     res.json(updated);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// GET /api/bots/:id/history/node/:nodeId — get node history
+app.get('/api/bots/:id/history/node/:nodeId', (req, res) => {
+  try {
+    const botId = safeSegment(req.params.id);
+    if (!botId || !botExists(botId)) return res.status(404).json({ error: 'Not found' });
+    const history = readNodeHistory(botId);
+    const entries = (history[req.params.nodeId] || []).slice().reverse(); // newest first
+    res.json(entries);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/bots/:id/history/node/:nodeId — add manual snapshot
+app.post('/api/bots/:id/history/node/:nodeId', (req, res) => {
+  try {
+    const botId = safeSegment(req.params.id);
+    if (!botId || !botExists(botId)) return res.status(404).json({ error: 'Not found' });
+    const bot = JSON.parse(fs.readFileSync(getBotPath(botId), 'utf-8'));
+    const node = (bot.nodes || []).find(n => n.id === req.params.nodeId);
+    if (!node) return res.status(404).json({ error: 'Node not found' });
+    const history = readNodeHistory(botId);
+    if (!history[node.id]) history[node.id] = [];
+    const entry = {
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      author: req.user?.login || 'unknown',
+      comment: String(req.body?.comment || '').slice(0, 500),
+      data: stripNodeUiFields(node.data),
+    };
+    history[node.id].push(entry);
+    if (history[node.id].length > MAX_NODE_HISTORY) history[node.id] = history[node.id].slice(-MAX_NODE_HISTORY);
+    writeNodeHistory(botId, history);
+    res.status(201).json(entry);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/bots/:id/history/node/:nodeId/:entryId/comment — update comment
+app.put('/api/bots/:id/history/node/:nodeId/:entryId/comment', (req, res) => {
+  try {
+    const botId = safeSegment(req.params.id);
+    if (!botId || !botExists(botId)) return res.status(404).json({ error: 'Not found' });
+    const history = readNodeHistory(botId);
+    const entry = (history[req.params.nodeId] || []).find(e => e.id === req.params.entryId);
+    if (!entry) return res.status(404).json({ error: 'Entry not found' });
+    entry.comment = String(req.body?.comment || '').slice(0, 500);
+    writeNodeHistory(botId, history);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/bots/:id/history/node/:nodeId/:entryId — delete entry
+app.delete('/api/bots/:id/history/node/:nodeId/:entryId', (req, res) => {
+  try {
+    const botId = safeSegment(req.params.id);
+    if (!botId || !botExists(botId)) return res.status(404).json({ error: 'Not found' });
+    const history = readNodeHistory(botId);
+    if (history[req.params.nodeId]) {
+      history[req.params.nodeId] = history[req.params.nodeId].filter(e => e.id !== req.params.entryId);
+      writeNodeHistory(botId, history);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/bots/:id/comment', (req, res) => {

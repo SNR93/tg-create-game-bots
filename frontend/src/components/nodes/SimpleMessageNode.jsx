@@ -1,10 +1,18 @@
 import React from 'react';
-import { Handle, Position } from '@xyflow/react';
+import { Handle, Position, useEdges, useNodeId } from '@xyflow/react';
 
 const ICONS = { text:'✎', photo:'🖼', video:'▶', voice:'🎤', audio:'🎵', document:'📄' };
 
 export default function SimpleMessageNode({ data, selected }) {
   const type = data.type || 'text';
+  const nodeId = useNodeId();
+  const edges = useEdges();
+  const leftConnected  = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue-left');
+  const rightConnected = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue');
+  const expanded = !!data.__expanded;
+  const displayText = type === 'text'
+    ? (expanded ? (data.text || '') : (data.text?.slice(0, 32) || ''))
+    : (data.fileName || data.url?.split('/').pop() || type);
   return (
     <div style={{
       ...s.wrap,
@@ -19,14 +27,27 @@ export default function SimpleMessageNode({ data, selected }) {
       <div style={s.preview}>
         {data.protected && <span style={s.lock} title="Защищённый контент">🔒</span>}
         <span style={s.typeIcon}>{ICONS[type]}</span>
-        <span style={s.text}>
-          {type === 'text' ? (data.text?.slice(0,32) || <em style={{color:'#4a5568'}}>пусто</em>)
-                           : (data.fileName || data.url?.split('/').pop() || type)}
+        <span style={{ ...s.text, whiteSpace: expanded ? 'pre-wrap' : 'nowrap' }}>
+          {displayText || <em style={{ color: '#4a5568' }}>пусто</em>}
         </span>
       </div>
       <div style={s.cont}>
+        <Handle
+          type="source"
+          position={Position.Left}
+          id="continue-left"
+          title="Выход влево"
+          style={{ ...s.ho, left: -6, right: 'auto', opacity: rightConnected ? 0.25 : 1 }}
+          isConnectable={!rightConnected}
+        />
         <span style={s.contLabel}>Продолжить</span>
-        <Handle type="source" position={Position.Right} id="continue" style={s.ho} />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="continue"
+          style={{ ...s.ho, opacity: leftConnected ? 0.25 : 1 }}
+          isConnectable={!leftConnected}
+        />
       </div>
       {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}
     </div>

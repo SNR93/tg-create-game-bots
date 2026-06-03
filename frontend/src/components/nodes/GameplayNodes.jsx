@@ -1,14 +1,37 @@
 import React, { useEffect } from 'react';
-import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
+import { Handle, Position, useEdges, useNodeId, useUpdateNodeInternals } from '@xyflow/react';
 import { normalizeRandomConfig } from '../../randomUtils';
 
 function Frame({ children, selected, icon, title, data, input = true, output = true }) {
+  const nodeId = useNodeId();
+  const edges = useEdges();
+  const leftConnected  = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue-left');
+  const rightConnected = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue');
   return (
     <div style={{ ...s.wrap, border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55' }}>
       {input && <Handle type="target" position={Position.Left} id="in" style={s.hIn} />}
       <div style={s.header}><span>{icon}</span><span style={s.title}>{title}</span></div>
       {children}
-      {output && <div style={s.cont}><span style={s.muted}>Продолжить</span><Handle type="source" position={Position.Right} id="continue" style={s.hOut} /></div>}
+      {output && (
+        <div style={s.cont}>
+          <Handle
+            type="source"
+            position={Position.Left}
+            id="continue-left"
+            title="Выход влево"
+            style={{ ...s.hOut, left: -6, right: 'auto', opacity: rightConnected ? 0.25 : 1 }}
+            isConnectable={!rightConnected}
+          />
+          <span style={s.muted}>Продолжить</span>
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="continue"
+            style={{ ...s.hOut, opacity: leftConnected ? 0.25 : 1 }}
+            isConnectable={!leftConnected}
+          />
+        </div>
+      )}
       {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}
     </div>
   );
@@ -37,8 +60,21 @@ export function FormulaNode({ data, selected }) {
   const entries = data.entries || [];
   return (
     <Frame selected={selected} icon="🧮" title={data.title || 'Формула'} data={data}>
-      {entries.length === 0 && <div style={s.empty}>Нет вычислений</div>}
-      {entries.map(entry => <div key={entry.id} style={s.row}><span style={s.key}>{entry.varName || '?'}</span><span style={s.value}>{entry.operator || '='} {entry.value ?? 0}</span></div>)}
+      {data.formula ? (
+        <div style={s.row}>
+          <span style={{ ...s.key, color: '#68d391' }}>{data.varName || '?'}</span>
+          <span style={{ ...s.value, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            = {data.formula}
+          </span>
+        </div>
+      ) : entries.length === 0 ? (
+        <div style={s.empty}>Нет вычислений</div>
+      ) : entries.map(entry => (
+        <div key={entry.id} style={s.row}>
+          <span style={s.key}>{entry.varName || '?'}</span>
+          <span style={s.value}>{entry.operator || '='} {entry.value ?? 0}</span>
+        </div>
+      ))}
     </Frame>
   );
 }

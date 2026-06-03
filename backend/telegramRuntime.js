@@ -40,10 +40,15 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-const TELEGRAM_FORMAT_TAG = /<\/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler)\s*>|<a\s+href=(?:"[^"]*"|'[^']*')\s*>/gi;
+const TELEGRAM_FORMAT_TAG = /<\/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler)\s*>|<a\s+href=(?:"[^"]*"|'[^']*')\s*>|<\/a>/gi;
+
+function stripLoreTags(text) {
+  // Remove <a data-lore-title="...">word</a> — replace with just the inner text
+  return String(text || '').replace(/<a\s+data-lore-title="[^"]*">([\s\S]*?)<\/a>/gi, '$1');
+}
 
 function telegramTextPayload(text) {
-  const raw = String(text ?? '');
+  const raw = stripLoreTags(String(text ?? ''));
   if (!TELEGRAM_FORMAT_TAG.test(raw)) return { text: raw };
   TELEGRAM_FORMAT_TAG.lastIndex = 0;
   let cursor = 0;
@@ -78,11 +83,17 @@ function evaluateFormulaExpression(expression, vars) {
     if (!variable || variable.type !== 'number') throw new Error(`Формула: плейсхолдер «${name.trim()}» не является числом.`);
     return String(Number(variable.value) || 0);
   });
-  const normalized = withValues.replace(/(\d+(?:[.,]\d+)?)\s*%/g, (_, value) => `(${String(value).replace(',', '.')}/100)`);
+  // Multiplicative %: *50% → *(50/100), /50% → /(50/100)
+  let normalized = withValues.replace(/([*/])\s*(\d+(?:[.,]\d+)?)\s*%/g,
+    (_, op, n) => `${op}(${n.replace(',', '.')}/100)`);
+  // Additive %: -50% → *(1-50/100)  i.e. "subtract 50% of the current value"
+  //             +50% → *(1+50/100)  i.e. "add 50% of the current value"
+  normalized = normalized.replace(/([+\-])\s*(\d+(?:[.,]\d+)?)\s*%/g,
+    (_, op, n) => `*(1${op}${n.replace(',', '.')}/100)`);
   if (!/^[\d+\-*/().\s]+$/.test(normalized)) throw new Error('Формула содержит недопустимые символы.');
   const result = Function(`"use strict"; return (${normalized});`)();
   if (!Number.isFinite(result)) throw new Error('Формула вернула нечисловое значение.');
-  return result;
+  return Number.isInteger(result) ? result : Math.ceil(result);
 }
 
 class TelegramRuntime {
@@ -358,6 +369,22 @@ class TelegramRuntime {
         const transient = !!session.waiting.transient;
         session.waiting = null;
         const applied = await this.applyPromocode(chatId, session, text);
+        if (applied && promoNode) {
+          if (!session.variables) session.variables = {};
+          // New format: array of { varName, varValue }
+          for (const entry of (promoNode.data.rewardVars || [])) {
+            if (entry.varName?.trim()) {
+              const n = Number(entry.varValue);
+              session.variables[entry.varName.trim()] = Number.isFinite(n) && String(entry.varValue ?? '').trim() !== '' ? n : String(entry.varValue ?? '');
+            }
+          }
+          // Backward compat: single var (old format)
+          if (promoNode.data.rewardVarName?.trim() && !(promoNode.data.rewardVars?.length)) {
+            const rawValue = promoNode.data.rewardVarValue ?? '';
+            const numValue = Number(rawValue);
+            session.variables[promoNode.data.rewardVarName.trim()] = Number.isFinite(numValue) && String(rawValue).trim() !== '' ? numValue : String(rawValue);
+          }
+        }
         if (promoNode) {
           const nextNodeId = applied && promoNode.data.successTargetNodeId
             ? promoNode.data.successTargetNodeId

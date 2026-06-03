@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position } from '@xyflow/react';
+import { Handle, Position, useEdges, useNodeId } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
 
 const TYPE_ICON = { text:'✎', photo:'🖼', video:'▶', voice:'🎤', audio:'🎵', document:'📄' };
@@ -10,16 +10,20 @@ export function makeMessage(type = 'text') {
 
 export default function MessageChainNode({ data, selected }) {
   const messages = data.messages || [makeMessage('text')];
+  const nodeId = useNodeId();
+  const edges = useEdges();
+  const leftConnected  = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue-left');
+  const rightConnected = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue');
+  const expanded = !!data.__expanded;
 
   return (
     <div style={{
       ...s.wrap,
+      maxWidth: expanded ? 'none' : 260,
       border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55',
       boxShadow: selected ? '0 0 0 2px rgba(79,209,197,0.25),0 0 20px rgba(79,209,197,0.12)' : 'none',
     }}>
-      {/* Input handle near title */}
-      <Handle type="target" position={Position.Left} id="in"
-        style={{ ...s.hIn, top: 17 }} />
+      <Handle type="target" position={Position.Left} id="in" style={{ ...s.hIn, top: 17 }} />
 
       <div style={s.header}>
         <span style={s.icon}>🔗</span>
@@ -30,19 +34,32 @@ export default function MessageChainNode({ data, selected }) {
         <div key={msg.id} style={s.row}>
           {msg.protected && <span style={s.lock} title="Защищённый контент">🔒</span>}
           <span style={s.mIcon}>{TYPE_ICON[msg.type] ?? '?'}</span>
-          <span style={s.mText}>
+          <span style={{ ...s.mText, whiteSpace: expanded ? 'pre-wrap' : 'nowrap' }}>
             {msg.type === 'text'
-              ? (msg.text?.slice(0, 26) || <em style={{ color: '#4a5568' }}>пусто</em>)
+              ? (expanded ? (msg.text || <em style={{ color: '#4a5568' }}>пусто</em>) : (msg.text?.slice(0, 26) || <em style={{ color: '#4a5568' }}>пусто</em>))
               : (msg.fileName || msg.url?.split('/').pop() || msg.type)}
           </span>
           {msg.delay > 0 && <span style={s.delay}>{msg.delay}с</span>}
         </div>
       ))}
 
-      {/* Single output at bottom */}
       <div style={s.cont}>
+        <Handle
+          type="source"
+          position={Position.Left}
+          id="continue-left"
+          title="Выход влево"
+          style={{ ...s.hOut, left: -6, right: 'auto', opacity: rightConnected ? 0.25 : 1 }}
+          isConnectable={!rightConnected}
+        />
         <span style={s.contLabel}>Продолжить</span>
-        <Handle type="source" position={Position.Right} id="continue" style={s.hOut} />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="continue"
+          style={{ ...s.hOut, opacity: leftConnected ? 0.25 : 1 }}
+          isConnectable={!leftConnected}
+        />
       </div>
 
       {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import MessageChainInspector from './MessageChainInspector';
 import StartInspector from './StartInspector';
 import ApplicationInspector from './ApplicationInspector';
@@ -14,9 +14,11 @@ import GroupInspector from './GroupInspector';
 import NodeHelp from './NodeHelp';
 import { PlaceholderProvider } from './PlaceholderField';
 import { getNodeMeta } from '../nodes/nodeCatalog';
-import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CheckpointInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector } from './GameplayInspectors';
+import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CheckpointInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, ReturnInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector } from './GameplayInspectors';
+import NodeHistoryPanel from './NodeHistoryPanel';
 
 export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, botVariables, allBotVariables, placeholderVariables, botId, nodes }) {
+  const [showHistory, setShowHistory] = useState(false);
   if (!node) return null;
   const meta = getNodeMeta(node.type);
 
@@ -33,8 +35,24 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, b
             <div style={s.hSub}>{meta.label}</div>
           </div>
         </div>
-        <button style={s.closeBtn} onClick={onClose}>×</button>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {botId && (
+            <button style={s.historyBtn} title="История изменений" onClick={() => setShowHistory(true)}>
+              🕐
+            </button>
+          )}
+          <button style={s.closeBtn} onClick={onClose}>×</button>
+        </div>
       </div>
+      {showHistory && botId && (
+        <NodeHistoryPanel
+          node={node}
+          botId={botId}
+          currentData={node.data}
+          onRestore={data => onUpdate(node.id, data)}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
 
       <PlaceholderProvider botVariables={placeholderVariables || allBotVariables || botVariables}>
       <div style={s.body}>
@@ -56,13 +74,14 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, b
         {node.type === 'relationNode'     && <RelationInspector     data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'achievementNode'  && <AchievementInspector  data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'achievementsViewNode' && <AchievementsViewInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'promocodeNode'    && <PromocodeInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
+        {node.type === 'promocodeNode'    && <PromocodeInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} botVariables={botVariables} />}
         {node.type === 'subscenarioNode'      && <SubscenarioInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
+        {node.type === 'returnNode'           && <ReturnInspector           data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
         {node.type === 'invokeCommandNode'    && <InvokeCommandInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
         {node.type === 'textInputNode'        && <TextInputInspector        data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'editMessageNode'       && <EditMessageInspector       data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'pollNode'              && <PollInspector              data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'stickerNode'           && <StickerInspector           data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'stickerNode'           && <StickerInspector           data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}
         {node.type === 'locationNode'          && <LocationInspector          data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'subscriptionCheckNode' && <SubscriptionCheckInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'httpRequestNode'      && <HttpRequestInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
@@ -117,6 +136,7 @@ const s = {
   hTitle: { fontSize: 14, fontWeight: 700, color: '#e2e8f0' },
   hSub: { fontSize: 11, color: '#718096', marginTop: 1 },
   closeBtn: { background: 'transparent', border: 'none', color: '#718096', fontSize: 22, cursor: 'pointer', lineHeight: 1, padding: 0, flexShrink: 0 },
+  historyBtn: { background: 'transparent', border: '1px solid #2d3458', borderRadius: 6, color: '#a0aec0', fontSize: 16, cursor: 'pointer', padding: '3px 7px', flexShrink: 0, title: 'История' },
   body: { flex: 1, overflowY: 'auto' },
   varSection: { padding: '12px 16px', borderTop: '1px solid #222436', borderBottom: '1px solid #222436' },
   varTitle: { fontSize: 11, fontWeight: 700, color: '#718096', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },

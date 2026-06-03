@@ -34,13 +34,13 @@ input, textarea {
   cursor: grabbing;
 }
 
-.node-expanded > div > div {
-  max-width: 560px !important;
-  min-width: 360px !important;
+.node-expanded [style*="white-space: nowrap"],
+.node-expanded [style*="whiteSpace: nowrap"] {
+  white-space: pre-wrap !important;
+  overflow: visible !important;
 }
 
-.node-expanded [style*="white-space: nowrap"] {
-  white-space: pre-wrap !important;
+.node-expanded [style*="overflow: hidden"] {
   overflow: visible !important;
 }
 

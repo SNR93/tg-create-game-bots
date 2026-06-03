@@ -15,8 +15,27 @@ function parseLinks(text) {
   return links;
 }
 
+function renderLoreText(text) {
+  const pattern = /<a\s+data-lore-title="([^"]*)">([\s\S]*?)<\/a>/g;
+  const parts = [];
+  let cursor = 0;
+  let match;
+  while ((match = pattern.exec(text || ''))) {
+    if (match.index > cursor) parts.push(text.slice(cursor, match.index));
+    parts.push(
+      <span key={match.index} style={{ color: '#93c5fd', borderBottom: '1px solid rgba(147,197,253,0.5)' }}>
+        {match[2]}
+      </span>
+    );
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < (text || '').length) parts.push((text || '').slice(cursor));
+  return parts;
+}
+
 export default function LoreModal({ lore, onChange, onClose }) {
   const textareaRef = useRef(null);
+  const mirrorRef = useRef(null);
   const text = lore?.text || '';
   const links = useMemo(() => parseLinks(text), [text]);
 
@@ -50,6 +69,12 @@ export default function LoreModal({ lore, onChange, onClose }) {
     textareaRef.current.scrollTop = Math.max(0, (line - 4) * 20);
   }
 
+  function syncScroll(event) {
+    if (mirrorRef.current) {
+      mirrorRef.current.scrollTop = event.currentTarget.scrollTop;
+    }
+  }
+
   return (
     <div style={s.overlay} onMouseDown={onClose}>
       <div style={s.modal} onMouseDown={event => event.stopPropagation()}>
@@ -74,19 +99,47 @@ export default function LoreModal({ lore, onChange, onClose }) {
               <button type="button" style={s.close} onClick={onClose}>×</button>
             </div>
           </header>
-          <textarea
-            ref={textareaRef}
-            style={s.textarea}
-            value={text}
-            placeholder="Пишите заметки, описания мира, персонажей, предметов и веток сюжета..."
-            onChange={event => update(event.target.value)}
-            onKeyDown={event => event.stopPropagation()}
-          />
+          <div style={s.editorWrap}>
+            {/* Mirror layer — shows lore links in blue */}
+            <div
+              ref={mirrorRef}
+              aria-hidden="true"
+              style={s.mirror}
+            >
+              {renderLoreText(text)}
+            </div>
+            <textarea
+              ref={textareaRef}
+              style={s.textarea}
+              value={text}
+              placeholder="Пишите заметки, описания мира, персонажей, предметов и веток сюжета..."
+              onChange={event => update(event.target.value)}
+              onKeyDown={event => event.stopPropagation()}
+              onScroll={syncScroll}
+            />
+          </div>
         </section>
       </div>
     </div>
   );
 }
+
+const EDITOR_STYLE = {
+  flex: 1,
+  resize: 'none',
+  background: 'transparent',
+  border: 'none',
+  outline: 'none',
+  fontSize: 15,
+  lineHeight: 1.65,
+  padding: 22,
+  fontFamily: 'inherit',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  overflowWrap: 'break-word',
+  boxSizing: 'border-box',
+  width: '100%',
+};
 
 const s = {
   overlay: { position: 'fixed', inset: 0, zIndex: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(3,6,16,0.78)', padding: 22 },
@@ -104,5 +157,23 @@ const s = {
   actions: { display: 'flex', alignItems: 'center', gap: 8 },
   toolbarBtn: { background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 11px', fontSize: 12, fontWeight: 700, cursor: 'pointer' },
   close: { background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 28, cursor: 'pointer' },
-  textarea: { flex: 1, resize: 'none', background: '#12131a', border: 'none', outline: 'none', color: '#e2e8f0', fontSize: 15, lineHeight: 1.65, padding: 22, fontFamily: 'inherit', whiteSpace: 'pre-wrap' },
+  editorWrap: { flex: 1, position: 'relative', display: 'flex', background: '#12131a' },
+  mirror: {
+    ...EDITOR_STYLE,
+    position: 'absolute',
+    inset: 0,
+    zIndex: 0,
+    pointerEvents: 'none',
+    color: '#e2e8f0',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+  },
+  textarea: {
+    ...EDITOR_STYLE,
+    position: 'relative',
+    zIndex: 1,
+    color: 'transparent',
+    caretColor: '#e2e8f0',
+    overflowY: 'auto',
+  },
 };

@@ -274,6 +274,32 @@ export const listBotRoles = id => adminRequest(id, '/roles');
 export const saveBotRole = (id, key, role) => adminRequest(id, `/roles/${encodeURIComponent(key)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) });
 export const deleteBotRole = (id, key) => adminRequest(id, `/roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
 
+// Node history
+export async function getNodeHistory(botId, nodeId) {
+  const r = await apiFetch(`${BASE}/bots/${botId}/history/node/${encodeURIComponent(nodeId)}`);
+  return readJson(r, 'Не удалось загрузить историю');
+}
+export async function saveNodeHistorySnapshot(botId, nodeId, comment) {
+  const r = await apiFetch(`${BASE}/bots/${botId}/history/node/${encodeURIComponent(nodeId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment }),
+  });
+  return readJson(r, 'Не удалось сохранить снимок');
+}
+export async function updateNodeHistoryComment(botId, nodeId, entryId, comment) {
+  const r = await apiFetch(`${BASE}/bots/${botId}/history/node/${encodeURIComponent(nodeId)}/${encodeURIComponent(entryId)}/comment`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment }),
+  });
+  return readJson(r, 'Не удалось обновить комментарий');
+}
+export async function deleteNodeHistoryEntry(botId, nodeId, entryId) {
+  const r = await apiFetch(`${BASE}/bots/${botId}/history/node/${encodeURIComponent(nodeId)}/${encodeURIComponent(entryId)}`, { method: 'DELETE' });
+  return readJson(r, 'Не удалось удалить запись');
+}
+
 export function resetBotPlayer(id, playerId) {
   return adminRequest(id, `/players/${encodeURIComponent(playerId)}/reset`, { method: 'POST' });
 }
