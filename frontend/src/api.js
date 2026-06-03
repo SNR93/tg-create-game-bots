@@ -111,6 +111,40 @@ export function stopTelegramBot(id) {
   return telegramRequest(id, '/stop', { method: 'POST' });
 }
 
+async function telegramBackupRequest(path = '', options) {
+  const response = await apiFetch(`${BASE}/telegram-backup${path}`, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Ошибка Telegram-бэкапа');
+  return data;
+}
+
+export function getTelegramBackupSettings() {
+  return telegramBackupRequest();
+}
+
+export function saveTelegramBackupSettings(settings) {
+  return telegramBackupRequest('', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+}
+
+export function sendTelegramBackupNow() {
+  return telegramBackupRequest('/send', { method: 'POST' });
+}
+
+export async function restoreTelegramBackup(file) {
+  const response = await apiFetch(`${BASE}/telegram-backup/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/gzip' },
+    body: file,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Не удалось восстановить бэкап');
+  return data;
+}
+
 export async function uploadBotMedia(id, type, file) {
   const validationError = validateMediaFile(type, file);
   if (validationError) throw new Error(validationError);

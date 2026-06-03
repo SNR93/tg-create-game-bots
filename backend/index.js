@@ -3,6 +3,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { v4: uuidv4 } = require('uuid');
 const telegramRuntime = require('./telegramRuntime');
 const { initDatabase, pool } = require('./database');
@@ -15,6 +16,7 @@ const app = express();
 const PORT = 3001;
 const BOTS_DIR = path.join(__dirname, 'data', 'bots');
 const MEDIA_DIR = path.join(__dirname, 'data', 'media');
+const TELEGRAM_BACKUP_SETTINGS_PATH = path.join(__dirname, 'data', 'telegram-backup.json');
 const AUTH_COOKIE = 'tgbot_session';
 const AUTH_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const AUTH_SECRET = process.env.AUTH_SECRET || crypto.randomBytes(32).toString('hex');
@@ -42,6 +44,219 @@ const AUTH_USERS = parseAuthUsers(process.env.AUTH_USERS);
 
 if (!Object.keys(AUTH_USERS).length) {
   console.warn('AUTH_USERS is empty. Panel login is disabled until AUTH_USERS is configured.');
+}
+
+function readTelegramBackupSettings() {
+  try {
+    const settings = JSON.parse(fs.readFileSync(TELEGRAM_BACKUP_SETTINGS_PATH, 'utf-8'));
+    return {
+      enabled: !!settings.enabled,
+      token: String(settings.token || ''),
+      chatId: String(settings.chatId || ''),
+      scheduleTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(settings.scheduleTime || '') ? settings.scheduleTime : '03:00',
+      lastSentAt: settings.lastSentAt || null,
+      lastScheduledDate: settings.lastScheduledDate || null,
+      lastError: settings.lastError || '',
+    };
+  } catch {
+    return { enabled: false, token: '', chatId: '', scheduleTime: '03:00', lastSentAt: null, lastScheduledDate: null, lastError: '' };
+  }
+}
+
+function saveTelegramBackupSettings(patch) {
+  const next = { ...readTelegramBackupSettings(), ...patch };
+  next.enabled = !!next.enabled;
+  next.token = String(next.token || '').trim();
+  next.chatId = String(next.chatId || '').trim();
+  next.scheduleTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(next.scheduleTime || '') ? next.scheduleTime : '03:00';
+  fs.writeFileSync(TELEGRAM_BACKUP_SETTINGS_PATH, JSON.stringify(next, null, 2));
+  return next;
+}
+
+function splitTarPath(name) {
+  const clean = String(name || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (Buffer.byteLength(clean) <= 100) return { name: clean, prefix: '' };
+  const parts = clean.split('/');
+  const fileName = parts.pop();
+  const prefix = parts.join('/');
+  if (Buffer.byteLength(fileName) > 100 || Buffer.byteLength(prefix) > 155) {
+    throw new Error(`Слишком длинный путь для архива: ${clean}`);
+  }
+  return { name: fileName, prefix };
+}
+
+function writeTarString(buffer, offset, length, value) {
+  const bytes = Buffer.from(String(value || ''), 'utf-8');
+  bytes.copy(buffer, offset, 0, Math.min(bytes.length, length));
+}
+
+function writeTarOctal(buffer, offset, length, value) {
+  const text = Math.max(0, Number(value) || 0).toString(8).padStart(length - 1, '0');
+  buffer.write(text.slice(-(length - 1)) + '\0', offset, length, 'ascii');
+}
+
+function createTarHeader(name, size, mtime) {
+  const header = Buffer.alloc(512);
+  const split = splitTarPath(name);
+  writeTarString(header, 0, 100, split.name);
+  writeTarOctal(header, 100, 8, 0o644);
+  writeTarOctal(header, 108, 8, 0);
+  writeTarOctal(header, 116, 8, 0);
+  writeTarOctal(header, 124, 12, size);
+  writeTarOctal(header, 136, 12, Math.floor(mtime / 1000));
+  header.fill(' ', 148, 156);
+  header[156] = '0'.charCodeAt(0);
+  writeTarString(header, 257, 6, 'ustar');
+  writeTarString(header, 263, 2, '00');
+  writeTarString(header, 345, 155, split.prefix);
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  writeTarOctal(header, 148, 8, checksum);
+  return header;
+}
+
+function collectFiles(baseDir, archiveRoot) {
+  if (!fs.existsSync(baseDir)) return [];
+  const result = [];
+  function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(fullPath);
+      else if (entry.isFile()) {
+        result.push({
+          fullPath,
+          archivePath: `${archiveRoot}/${path.relative(baseDir, fullPath).replace(/\\/g, '/')}`,
+          stat: fs.statSync(fullPath),
+        });
+      }
+    }
+  }
+  walk(baseDir);
+  return result;
+}
+
+function createBotsMediaArchive() {
+  const chunks = [];
+  const files = [
+    ...collectFiles(BOTS_DIR, 'bots'),
+    ...collectFiles(MEDIA_DIR, 'media'),
+  ];
+  for (const file of files) {
+    const data = fs.readFileSync(file.fullPath);
+    chunks.push(createTarHeader(file.archivePath, data.length, file.stat.mtimeMs));
+    chunks.push(data);
+    const padding = (512 - (data.length % 512)) % 512;
+    if (padding) chunks.push(Buffer.alloc(padding));
+  }
+  chunks.push(Buffer.alloc(1024));
+  return zlib.gzipSync(Buffer.concat(chunks), { level: 9 });
+}
+
+function readTarString(buffer, start, length) {
+  const slice = buffer.slice(start, start + length);
+  const nul = slice.indexOf(0);
+  return slice.slice(0, nul >= 0 ? nul : slice.length).toString('utf-8').trim();
+}
+
+function parseTarOctal(buffer, start, length) {
+  return parseInt(readTarString(buffer, start, length).trim() || '0', 8) || 0;
+}
+
+function safeRestorePath(root, relPath) {
+  const clean = String(relPath || '').replace(/\\/g, '/');
+  if (!clean || clean.startsWith('/') || clean.includes('..')) throw new Error(`Недопустимый путь в архиве: ${relPath}`);
+  const target = path.resolve(root, clean);
+  const base = path.resolve(root);
+  if (target !== base && !target.startsWith(base + path.sep)) throw new Error(`Недопустимый путь в архиве: ${relPath}`);
+  return target;
+}
+
+function restoreBotsMediaArchive(archiveBuffer) {
+  const tar = zlib.gunzipSync(archiveBuffer);
+  const tempRoot = path.join(__dirname, 'data', `.restore-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
+  const tempBots = path.join(tempRoot, 'bots');
+  const tempMedia = path.join(tempRoot, 'media');
+  fs.mkdirSync(tempBots, { recursive: true });
+  fs.mkdirSync(tempMedia, { recursive: true });
+  let offset = 0;
+  let files = 0;
+  try {
+    while (offset + 512 <= tar.length) {
+      const header = tar.slice(offset, offset + 512);
+      offset += 512;
+      if (header.every(byte => byte === 0)) break;
+      const name = readTarString(header, 0, 100);
+      const prefix = readTarString(header, 345, 155);
+      const archivePath = [prefix, name].filter(Boolean).join('/');
+      const size = parseTarOctal(header, 124, 12);
+      const type = String.fromCharCode(header[156] || 48);
+      const data = tar.slice(offset, offset + size);
+      offset += size + ((512 - (size % 512)) % 512);
+      if (type !== '0' && type !== '\0') continue;
+      if (!archivePath.startsWith('bots/') && !archivePath.startsWith('media/')) continue;
+      const target = archivePath.startsWith('bots/')
+        ? safeRestorePath(tempBots, archivePath.slice(5))
+        : safeRestorePath(tempMedia, archivePath.slice(6));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, data);
+      files += 1;
+    }
+    fs.rmSync(BOTS_DIR, { recursive: true, force: true });
+    fs.rmSync(MEDIA_DIR, { recursive: true, force: true });
+    fs.renameSync(tempBots, BOTS_DIR);
+    fs.renameSync(tempMedia, MEDIA_DIR);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    return { files };
+  } catch (error) {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function moscowNowParts() {
+  const shifted = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  return {
+    date: shifted.toISOString().slice(0, 10),
+    time: shifted.toISOString().slice(11, 16),
+  };
+}
+
+async function sendTelegramBackup(settings = readTelegramBackupSettings(), reason = 'manual') {
+  if (!settings.token) throw new Error('Укажите Telegram-токен для бэкапа.');
+  if (!settings.chatId) throw new Error('Укажите Telegram chat ID получателя.');
+  const archive = createBotsMediaArchive();
+  const fileName = `tg-bots-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.tar.gz`;
+  const form = new FormData();
+  form.append('chat_id', settings.chatId);
+  form.append('caption', `Бэкап ботов и медиа: ${reason}, ${new Date().toISOString()}`);
+  form.append('document', new Blob([archive], { type: 'application/gzip' }), fileName);
+  const response = await fetch(`https://api.telegram.org/bot${settings.token}/sendDocument`, {
+    method: 'POST',
+    body: form,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) throw new Error(data.description || 'Telegram не принял архив.');
+  saveTelegramBackupSettings({ lastSentAt: new Date().toISOString(), lastError: '' });
+  return { ok: true, fileName, size: archive.length, telegram: data.result };
+}
+
+let telegramBackupBusy = false;
+
+async function runTelegramBackupSchedule() {
+  if (telegramBackupBusy) return;
+  const settings = readTelegramBackupSettings();
+  if (!settings.enabled || !settings.token || !settings.chatId) return;
+  const now = moscowNowParts();
+  if (now.time !== settings.scheduleTime || settings.lastScheduledDate === now.date) return;
+  telegramBackupBusy = true;
+  try {
+    await sendTelegramBackup(settings, 'schedule');
+    saveTelegramBackupSettings({ lastScheduledDate: now.date, lastError: '' });
+  } catch (error) {
+    saveTelegramBackupSettings({ lastScheduledDate: now.date, lastError: error.message });
+  } finally {
+    telegramBackupBusy = false;
+  }
 }
 
 fs.mkdirSync(BOTS_DIR, { recursive: true });
@@ -162,6 +377,11 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function requireSnr93(req, res, next) {
+  if (req.user?.login !== 'SNR93') return res.status(403).json({ error: 'Доступно только пользователю SNR93' });
+  next();
+}
+
 function createBotTemplate(template = 'empty') {
   const node = (type, x, y, data = {}) => {
     const id = uuidv4();
@@ -268,6 +488,35 @@ app.post('/api/telegram/webhook/:id/:secret', asyncRoute(async (req, res) => {
 
 // GET /api/bots — list all bots
 app.use('/api', requireAuth);
+
+app.get('/api/telegram-backup', requireSnr93, (req, res) => {
+  res.json(readTelegramBackupSettings());
+});
+
+app.put('/api/telegram-backup', requireSnr93, (req, res) => {
+  res.json(saveTelegramBackupSettings({
+    enabled: req.body?.enabled,
+    token: req.body?.token,
+    chatId: req.body?.chatId,
+    scheduleTime: req.body?.scheduleTime,
+  }));
+});
+
+app.post('/api/telegram-backup/send', requireSnr93, asyncRoute(async (req, res) => {
+  if (telegramBackupBusy) return res.status(409).json({ error: 'Бэкап уже выполняется' });
+  telegramBackupBusy = true;
+  try {
+    res.json(await sendTelegramBackup(readTelegramBackupSettings(), 'manual'));
+  } finally {
+    telegramBackupBusy = false;
+  }
+}));
+
+app.post('/api/telegram-backup/restore', requireSnr93, express.raw({ type: '*/*', limit: '500mb' }), (req, res) => {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: 'Загрузите архив бэкапа' });
+  const result = restoreBotsMediaArchive(req.body);
+  res.json({ ok: true, ...result });
+});
 
 app.get('/api/bots', (req, res) => {
   try {
@@ -634,6 +883,9 @@ initDatabase()
       scenario_resume: async job => telegramRuntime.resumeScenario(job.bot_id, job.payload),
       keyboard_timeout: async job => telegramRuntime.handleKeyboardTimeout(job.bot_id, job.payload),
     });
+    setInterval(() => {
+      runTelegramBackupSchedule().catch(error => console.error('Telegram backup schedule failed:', error));
+    }, 30 * 1000);
     app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
   })
   .catch(error => {

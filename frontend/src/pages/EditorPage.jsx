@@ -31,6 +31,7 @@ import CompareView  from '../components/panels/CompareView';
 import AdminPanel   from '../components/panels/AdminPanel';
 import HelpModal    from '../components/panels/HelpModal';
 import LoreModal    from '../components/panels/LoreModal';
+import TelegramBackupModal from '../components/panels/TelegramBackupModal';
 import NodeInspector from '../components/inspector/NodeInspector';
 import Simulator    from '../components/simulator/Simulator';
 
@@ -394,7 +395,7 @@ function validateScenario(nodes, edges) {
   return issues;
 }
 
-export default function EditorPage() {
+export default function EditorPage({ user }) {
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -426,6 +427,7 @@ export default function EditorPage() {
   const [showSettings, setShowSettings]           = useState(false);
   const [showHelp, setShowHelp]                   = useState(false);
   const [showLore, setShowLore]                   = useState(false);
+  const [showTelegramBackup, setShowTelegramBackup] = useState(false);
   const [botLore, setBotLore]                     = useState({ text: '' });
   const [telegramToken, setTelegramToken]     = useState('');
   const [telegramError, setTelegramError]     = useState('');
@@ -995,6 +997,9 @@ export default function EditorPage() {
             {showSettings && (
               <div style={s.settingsMenu}>
                 <button style={s.settingsItem} onClick={() => { setShowAdmin(true); setShowSettings(false); }}>Админ</button>
+                {user?.login === 'SNR93' && (
+                  <button style={s.settingsItem} onClick={() => { setShowTelegramBackup(true); setShowSettings(false); }}>Telegram бэкап</button>
+                )}
                 <button style={s.settingsItem} onClick={handleDownloadJson}>JSON</button>
                 <label style={s.autoSaveControl}>
                   <span>Автосохранение</span>
@@ -1208,6 +1213,7 @@ export default function EditorPage() {
       )}
 
       {showAdmin && <AdminPanel botId={id} onClose={() => setShowAdmin(false)} />}
+      {showTelegramBackup && <TelegramBackupModal onClose={() => setShowTelegramBackup(false)} />}
       {showLore && <LoreModal lore={botLore} onChange={setBotLore} onClose={() => setShowLore(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 

@@ -30,7 +30,7 @@ function App() {
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage onLogin={setUser} />} />
         <Route path="/" element={user ? <BotsPage user={user} onLogout={handleLogout} /> : <Navigate to="/login" replace />} />
-        <Route path="/editor/:id" element={user ? <EditorPage /> : <Navigate to="/login" replace />} />
+        <Route path="/editor/:id" element={user ? <EditorPage user={user} /> : <Navigate to="/login" replace />} />
         <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />
       </Routes>
     </BrowserRouter>
