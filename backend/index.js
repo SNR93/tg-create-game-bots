@@ -15,13 +15,9 @@ const app = express();
 const PORT = 3001;
 const BOTS_DIR = path.join(__dirname, 'data', 'bots');
 const MEDIA_DIR = path.join(__dirname, 'data', 'media');
-const AUTH_USERS = {
-  SNR93: '293800',
-  fullxayc: '293800',
-};
 const AUTH_COOKIE = 'tgbot_session';
 const AUTH_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
-const AUTH_SECRET = process.env.AUTH_SECRET || 'site-create-text-bot-auth-v1';
+const AUTH_SECRET = process.env.AUTH_SECRET || crypto.randomBytes(32).toString('hex');
 const MEDIA_FOLDERS = {
   photo: 'images',
   image: 'images',
@@ -31,6 +27,22 @@ const MEDIA_FOLDERS = {
   audio: 'audio',
   document: 'documents',
 };
+
+function parseAuthUsers(value) {
+  return Object.fromEntries(String(value || '').split(',').map(pair => {
+    const index = pair.indexOf(':');
+    if (index === -1) return null;
+    const login = pair.slice(0, index).trim();
+    const password = pair.slice(index + 1);
+    return login && password ? [login, password] : null;
+  }).filter(Boolean));
+}
+
+const AUTH_USERS = parseAuthUsers(process.env.AUTH_USERS);
+
+if (!Object.keys(AUTH_USERS).length) {
+  console.warn('AUTH_USERS is empty. Panel login is disabled until AUTH_USERS is configured.');
+}
 
 fs.mkdirSync(BOTS_DIR, { recursive: true });
 fs.mkdirSync(MEDIA_DIR, { recursive: true });

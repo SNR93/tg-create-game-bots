@@ -107,14 +107,16 @@ http://localhost:4000
 
 ### 4. Войти
 
-Встроенные пользователи для текущей сборки:
+Панель защищена авторизацией. Логины и пароли не хранятся в репозитории: задайте их через переменную окружения `AUTH_USERS` в формате `login:password,second:password`.
 
-| Логин | Пароль |
-|---|---|
-| `SNR93` | `293800` |
-| `fullxayc` | `293800` |
+Пример локального `.env`:
 
-Сессия хранится 30 дней. Для продакшена задайте собственный `AUTH_SECRET` и замените встроенные учётные данные в `backend/index.js`.
+```env
+AUTH_USERS=admin:change-me
+AUTH_SECRET=replace-with-long-random-secret
+```
+
+Сессия хранится 30 дней. Для стабильных сессий после перезапуска задайте постоянный `AUTH_SECRET`.
 
 ### 5. Создать бота
 
@@ -181,7 +183,8 @@ PUBLIC_BASE_URL=https://ваш-домен.ru docker compose up -d
 | `DATABASE_URL` | `postgresql://tgbot:tgbot@postgres:5432/tgbot` | Подключение к PostgreSQL |
 | `REDIS_URL` | `redis://redis:6379` | Подключение к Redis |
 | `PUBLIC_BASE_URL` | _(пусто)_ | Публичный HTTPS-адрес для webhook-режима |
-| `AUTH_SECRET` | `site-create-text-bot-auth-v1` | Секрет подписи авторизационной сессии |
+| `AUTH_USERS` | _(пусто)_ | Пользователи панели в формате `login:password,second:password` |
+| `AUTH_SECRET` | _(случайный при старте)_ | Секрет подписи авторизационной сессии |
 
 ---
 
