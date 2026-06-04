@@ -108,7 +108,7 @@ export default function KeyboardNode({ id, data, selected }) {
         <div style={s.timeoutRow}>
           <span style={s.muted}>⏱ Таймаут {data.timeout}с</span>
           <Handle type="source" position={Position.Right} id="timeout"
-            style={{ ...s.hBase, right: -6, background: '#f6ad55', borderColor: '#0f172a' }} />
+            style={{ ...s.hBase, right: -6, background: '#38bdf8', borderColor: '#0f172a' }} />
         </div>
       )}
 

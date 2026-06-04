@@ -139,29 +139,54 @@ function makeDefaultData(type) {
   }
 }
 
-function edgeDefaults(edge, nodes) {
+function isCommentEdge(edge, nodes) {
   const sourceNode = nodes.find(node => node.id === edge.source);
-  return edge.data?.isComment || sourceNode?.type === 'commentNode'
-    ? COMMENT_EDGE_DEFAULTS
-    : EDGE_DEFAULTS;
+  const targetNode = nodes.find(node => node.id === edge.target);
+  return !!edge.data?.isComment || sourceNode?.type === 'commentNode' || targetNode?.type === 'commentNode';
+}
+
+function edgeDefaults(edge, nodes) {
+  return isCommentEdge(edge, nodes) ? COMMENT_EDGE_DEFAULTS : EDGE_DEFAULTS;
 }
 
 function normalizeEdge(edge, nodes) {
   const defaults = edgeDefaults(edge, nodes);
+  const commentEdge = isCommentEdge(edge, nodes);
   return {
     ...defaults,
     ...edge,
-    data: { ...defaults.data, ...edge.data },
-    style: { ...defaults.style, ...edge.style },
-    markerEnd: { ...defaults.markerEnd, ...edge.markerEnd },
+    data: commentEdge ? { ...edge.data, ...defaults.data } : { ...defaults.data, ...edge.data },
+    style: commentEdge ? { ...edge.style, ...defaults.style } : { ...defaults.style, ...edge.style },
+    markerEnd: commentEdge ? { ...edge.markerEnd, ...defaults.markerEnd } : { ...defaults.markerEnd, ...edge.markerEnd },
   };
 }
 
+function sourceSlotKey(source, sourceHandle) {
+  const handle = sourceHandle ?? '';
+  if (handle === 'continue' || handle === 'continue-left') return `${source}\u0000continue`;
+  if (typeof handle === 'string') {
+    if (handle.startsWith('left-')) return `${source}\u0000button:${handle.slice(5)}`;
+    if (handle.startsWith('right-')) return `${source}\u0000button:${handle.slice(6)}`;
+    if (handle.startsWith('branch-left-')) return `${source}\u0000branch:${handle.slice(12)}`;
+    if (handle.startsWith('branch-')) return `${source}\u0000branch:${handle.slice(7)}`;
+  }
+  return `${source}\u0000${handle}`;
+}
+
 function canConnectFrom(edges, nodes, source, sourceHandle) {
+  const key = sourceSlotKey(source, sourceHandle);
   return !edges.some(e =>
-    e.source === source &&
-    (e.sourceHandle ?? null) === (sourceHandle ?? null)
+    sourceSlotKey(e.source, e.sourceHandle) === key
   );
+}
+
+function targetSlotKey(target, targetHandle) {
+  return `${target}\u0000${targetHandle || 'in'}`;
+}
+
+function hasConnectionTo(edges, target, targetHandle) {
+  const key = targetSlotKey(target, targetHandle);
+  return edges.some(edge => targetSlotKey(edge.target, edge.targetHandle) === key);
 }
 
 function removeDuplicateConnections(edges, nodes) {
@@ -172,7 +197,7 @@ function removeDuplicateConnections(edges, nodes) {
     if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return false;
     if (nodes.find(node => node.id === edge.target)?.type === 'commentNode') return false;
 
-    const key = `${edge.source}\u0000${edge.sourceHandle ?? ''}`;
+    const key = sourceSlotKey(edge.source, edge.sourceHandle);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -214,9 +239,56 @@ function rectsOverlap(a, b) {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
+function estimatedNodeSize(type) {
+  return type === 'groupNode' ? { width: 320, height: 220 } : { width: 260, height: 130 };
+}
+
+function makeNodeRects(existingNodes) {
+  const nodeMap = new Map(existingNodes.map(item => [item.id, item]));
+  return existingNodes.map(node => ({ id: node.id, ...absolutePosition(node, nodeMap), ...nodeSize(node) }));
+}
+
+function inflateRect(rect, padding) {
+  return {
+    x: rect.x - padding,
+    y: rect.y - padding,
+    width: rect.width + padding * 2,
+    height: rect.height + padding * 2,
+  };
+}
+
+function rectDistance(a, b) {
+  const dx = Math.max(b.x - (a.x + a.width), a.x - (b.x + b.width), 0);
+  const dy = Math.max(b.y - (a.y + a.height), a.y - (b.y + b.height), 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function connectionSide(sourceHandle) {
+  const handle = String(sourceHandle || '').toLowerCase();
+  if (handle.startsWith('left-') || handle.includes('left')) return 'left';
+  if (handle.startsWith('right-') || handle.includes('right')) return 'right';
+  return 'right';
+}
+
+function sidePenalty(candidateRect, sourceRect, preferredSide) {
+  const candidateCenterX = candidateRect.x + candidateRect.width / 2;
+  const candidateCenterY = candidateRect.y + candidateRect.height / 2;
+  const sourceCenterX = sourceRect.x + sourceRect.width / 2;
+  const sourceCenterY = sourceRect.y + sourceRect.height / 2;
+  const dx = candidateCenterX - sourceCenterX;
+  const dy = candidateCenterY - sourceCenterY;
+  const side =
+    Math.abs(dx) >= Math.abs(dy)
+      ? (dx < 0 ? 'left' : 'right')
+      : (dy < 0 ? 'top' : 'bottom');
+  if (side === preferredSide) return 0;
+  if ((preferredSide === 'left' || preferredSide === 'right') && (side === 'top' || side === 'bottom')) return 12;
+  return 28;
+}
+
 function findFreePosition(position, type, existingNodes) {
-  const size = type === 'groupNode' ? { width: 320, height: 220 } : { width: 260, height: 130 };
-  const existing = existingNodes.map(node => ({ ...absolutePosition(node, new Map(existingNodes.map(item => [item.id, item]))), ...nodeSize(node) }));
+  const size = estimatedNodeSize(type);
+  const existing = makeNodeRects(existingNodes);
   let candidate = { ...position };
   for (let attempt = 0; attempt < 80; attempt++) {
     const rect = { ...candidate, ...size };
@@ -224,6 +296,73 @@ function findFreePosition(position, type, existingNodes) {
     candidate = { x: position.x + 34 * (attempt + 1), y: position.y + 26 * (attempt + 1) };
   }
   return candidate;
+}
+
+function findNearestFreePositionNearNode(sourceNode, type, existingNodes, sourceHandle) {
+  if (!sourceNode) return null;
+  const size = estimatedNodeSize(type);
+  const existing = makeNodeRects(existingNodes);
+  const sourceRect = existing.find(item => item.id === sourceNode.id);
+  if (!sourceRect) return null;
+
+  const preferredSide = connectionSide(sourceHandle);
+  const gap = 54;
+  const scanStep = 46;
+  const scanLimit = 920;
+  const collisionPadding = 14;
+  const sourceCenterX = sourceRect.x + sourceRect.width / 2;
+  const sourceCenterY = sourceRect.y + sourceRect.height / 2;
+  const candidates = [];
+  const seen = new Set();
+
+  function addCandidate(x, y) {
+    const candidate = { x: Math.round(x), y: Math.round(y) };
+    const key = `${candidate.x}:${candidate.y}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push(candidate);
+  }
+
+  const sideOrder = preferredSide === 'left'
+    ? ['left', 'right', 'bottom', 'top']
+    : ['right', 'left', 'bottom', 'top'];
+
+  for (let ring = 0; ring <= 16; ring++) {
+    const offsets = ring === 0 ? [0] : [ring * scanStep, -ring * scanStep];
+    for (const side of sideOrder) {
+      for (const offset of offsets) {
+        if (side === 'right') addCandidate(sourceRect.x + sourceRect.width + gap, sourceCenterY - size.height / 2 + offset);
+        else if (side === 'left') addCandidate(sourceRect.x - size.width - gap, sourceCenterY - size.height / 2 + offset);
+        else if (side === 'bottom') addCandidate(sourceCenterX - size.width / 2 + offset, sourceRect.y + sourceRect.height + gap);
+        else addCandidate(sourceCenterX - size.width / 2 + offset, sourceRect.y - size.height - gap);
+      }
+    }
+  }
+
+  for (let dx = -scanLimit; dx <= scanLimit; dx += scanStep) {
+    for (let dy = -scanLimit; dy <= scanLimit; dy += scanStep) {
+      addCandidate(sourceCenterX - size.width / 2 + dx, sourceCenterY - size.height / 2 + dy);
+    }
+  }
+
+  candidates.sort((a, b) => {
+    const rectA = { ...a, ...size };
+    const rectB = { ...b, ...size };
+    const scoreA = rectDistance(rectA, sourceRect) * 100 + sidePenalty(rectA, sourceRect, preferredSide);
+    const scoreB = rectDistance(rectB, sourceRect) * 100 + sidePenalty(rectB, sourceRect, preferredSide);
+    return scoreA - scoreB;
+  });
+
+  for (const candidate of candidates) {
+    const rect = { ...candidate, ...size };
+    if (!existing.some(item => rectsOverlap(rect, inflateRect(item, collisionPadding)))) return candidate;
+  }
+
+  return findFreePosition(
+    { x: sourceRect.x + sourceRect.width + gap, y: sourceCenterY - size.height / 2 },
+    type,
+    existingNodes,
+  );
 }
 
 function stripSearchHighlight(style) {
@@ -511,7 +650,7 @@ export default function EditorPage({ user }) {
     const timer = setInterval(async () => {
       if (!initializedRef.current) return;
       try {
-        await saveBot(id, { nodes: nodesRef.current, edges: edgesRef.current, name: botNameRef.current, snapshots: snapshotsRef.current, lore: botLoreRef.current });
+        await saveBot(id, { nodes: nodesRef.current, edges: edgesRef.current.map(edge => normalizeEdge(edge, nodesRef.current)), name: botNameRef.current, snapshots: snapshotsRef.current, lore: botLoreRef.current });
         setAutoSaveStatus('saved');
         setTimeout(() => setAutoSaveStatus(null), 2000);
       } catch { setAutoSaveStatus('error'); setTimeout(() => setAutoSaveStatus(null), 3000); }
@@ -559,11 +698,17 @@ export default function EditorPage({ user }) {
   const pendingConnRef = useRef(null);
 
   const onConnectStart = useCallback((event, params) => {
-    if (!canConnectFrom(edgesRef.current, nodesRef.current, params.nodeId, params.handleId)) {
-      pendingConnRef.current = null;
-      return;
-    }
-    pendingConnRef.current = { source: params.nodeId, sourceHandle: params.handleId };
+    const target = event?.target;
+    const handleType = params.handleType || (target?.classList?.contains('react-flow__handle-target') ? 'target' : 'source');
+    const occupied = handleType === 'target'
+      ? hasConnectionTo(edgesRef.current, params.nodeId, params.handleId)
+      : !canConnectFrom(edgesRef.current, nodesRef.current, params.nodeId, params.handleId);
+    pendingConnRef.current = {
+      source: params.nodeId,
+      sourceHandle: params.handleId,
+      handleType,
+      commentOnly: occupied,
+    };
   }, []);
 
   const isValidConnection = useCallback((params) =>
@@ -582,11 +727,11 @@ export default function EditorPage({ user }) {
     if (!rfRef.current || clientX == null) { pendingConnRef.current = null; return; }
     const conn = pendingConnRef.current;
     pendingConnRef.current = null;
-    if (!canConnectFrom(edgesRef.current, nodesRef.current, conn.source, conn.sourceHandle)) return;
     setContextMenu({
       x: clientX, y: clientY,
       flowPos: rfRef.current.screenToFlowPosition({ x: clientX, y: clientY }),
       pendingConnection: conn,
+      allowedTypes: conn.commentOnly ? ['commentNode'] : null,
     });
   }, []);
 
@@ -602,6 +747,7 @@ export default function EditorPage({ user }) {
 
   // ── Node helpers ───────────────────────────────────────────────
   function addNode(type, name, position, pendingConn) {
+    if (pendingConn?.commentOnly && type !== 'commentNode') return;
     if ((type === 'menuNode' || type === 'settingsNode') && nodesRef.current.some(node => node.type === type)) {
       alert(type === 'menuNode' ? 'Главное меню уже добавлено.' : 'Настройки уже добавлены.');
       return;
@@ -609,7 +755,7 @@ export default function EditorPage({ user }) {
     const pendingSourceNode = pendingConn?.source
       ? nodesRef.current.find(node => node.id === pendingConn.source)
       : null;
-    const attachNewComment = type === 'commentNode' && pendingSourceNode?.type !== 'commentNode';
+    const attachNewComment = type === 'commentNode' && !!pendingSourceNode;
 
     if (
       pendingConn?.source &&
@@ -623,7 +769,9 @@ export default function EditorPage({ user }) {
       if ('title' in data) data.title = name.trim();
       else if (type === 'variableNode') data.varName = name.trim();
     }
-    const safePosition = findFreePosition(position || { x: 300, y: 200 }, type, nodesRef.current);
+    const safePosition = pendingSourceNode
+      ? findNearestFreePositionNearNode(pendingSourceNode, type, nodesRef.current, pendingConn.sourceHandle) || findFreePosition(position || { x: 300, y: 200 }, type, nodesRef.current)
+      : findFreePosition(position || { x: 300, y: 200 }, type, nodesRef.current);
     const newNode = { id: nodeId, type, position: safePosition, data: { ...data, __expanded: nodesExpanded }, selected: true };
     setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(newNode));
     if (pendingConn?.source) {
@@ -994,6 +1142,7 @@ export default function EditorPage({ user }) {
       ? { ...node, className: `${node.className || ''} node-search-highlight`.trim() }
       : { ...node, className: (node.className || '').replace(/\bnode-search-highlight\b/g, '').trim() || undefined })
     : nodes;
+  const displayedEdges = edges.map(edge => normalizeEdge(edge, nodes));
   const openSimulator = (startNodeId = null) => {
     setSimulatorStartNodeId(startNodeId);
     setShowSimulator(true);
@@ -1121,7 +1270,7 @@ export default function EditorPage({ user }) {
         <div style={s.canvas}>
           <NodeDebugContext.Provider value={openSimulator}>
             <ReactFlow
-              nodes={displayedNodes} edges={edges}
+              nodes={displayedNodes} edges={displayedEdges}
               onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onConnectStart={onConnectStart}
@@ -1169,6 +1318,7 @@ export default function EditorPage({ user }) {
       {/* Context menu — closed only by its own outside-click handler */}
       {contextMenu && (
         <ContextMenu x={contextMenu.x} y={contextMenu.y}
+          allowedTypes={contextMenu.allowedTypes}
           onSelect={handleContextMenuSelect}
           onClose={() => setContextMenu(null)} />
       )}

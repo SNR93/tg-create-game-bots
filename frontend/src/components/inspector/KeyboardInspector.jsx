@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import PlaceholderField from './PlaceholderField';
+import { BoolButtons } from './VariableInspector';
 import { EDITOR_LIMITS, SYSTEM_PLACEHOLDER_NAMES, isSystemPlaceholderName } from '../../telegramLimits';
 
 const COND_SOURCES = [
@@ -14,9 +15,10 @@ const OPS_NUM  = ['==','!=','>','<','>=','<='];
 const OPS_BOOL = ['=='];
 const OPS_ACH  = ['has', 'not_has'];
 
-function getOps(source) {
+function getOps(source, varType) {
   if (source === 'achievement') return OPS_ACH;
   if (source === 'inventory' || source === 'relation') return OPS_NUM;
+  if (varType === 'boolean') return OPS_BOOL;
   return OPS_NUM;
 }
 
@@ -127,6 +129,7 @@ export default function KeyboardInspector({ data, onUpdate, botVariables = {}, p
         {buttons.length === 0 && <div style={s.empty}>Нет вариантов</div>}
         {buttons.map((btn, i) => (
           <ButtonCard key={btn.id} btn={btn} index={i} total={buttons.length}
+            botVariables={botVariables}
             suggestions={suggestions}
             systemNames={systemNames.length ? systemNames : SYSTEM_PLACEHOLDER_NAMES}
             onPatch={p => patchButton(btn.id, p)}
@@ -139,7 +142,7 @@ export default function KeyboardInspector({ data, onUpdate, botVariables = {}, p
   );
 }
 
-function ButtonCard({ btn, index, total, suggestions, systemNames, onPatch, onDel, onMove }) {
+function ButtonCard({ btn, index, total, botVariables, suggestions, systemNames, onPatch, onDel, onMove }) {
   const [showCond, setShowCond] = useState(false);
   const conditions = editableButtonConditions(btn);
   const activeConditions = activeButtonConditions(btn);
@@ -214,6 +217,7 @@ function ButtonCard({ btn, index, total, suggestions, systemNames, onPatch, onDe
                   cond={cond}
                   index={condIndex}
                   total={activeConditions.length}
+                  botVariables={botVariables}
                   suggestions={suggestions}
                   systemNames={systemNames}
                   onPatch={patch => patchCondition(cond.id, patch)}
@@ -229,32 +233,53 @@ function ButtonCard({ btn, index, total, suggestions, systemNames, onPatch, onDe
   );
 }
 
-function ConditionRow({ cond, index, total, suggestions, systemNames, onPatch, onDelete }) {
-  const ops = getOps(cond.source);
-  const isAch = cond.source === 'achievement';
+function ConditionRow({ cond, index, total, botVariables, suggestions, systemNames, onPatch, onDelete }) {
+  const source = cond.source || 'variable';
+  const key = cond.key || cond.varName || '';
+  const varType = (source === 'variable' || source === 'global') ? (botVariables?.[key]?.type || null) : null;
+  const ops = getOps(source, varType);
+  const isAch = source === 'achievement';
+  const isBool = !isAch && varType === 'boolean';
+  const operator = ops.includes(cond.operator) ? cond.operator : ops[0];
+
+  function patchKey(value) {
+    const nextType = (source === 'variable' || source === 'global') ? (botVariables?.[value]?.type || null) : null;
+    const patch = { key: value, varName: value };
+    if (nextType === 'boolean') {
+      patch.operator = '==';
+      if (cond.value !== true && cond.value !== false && cond.value !== 'true' && cond.value !== 'false') {
+        patch.value = false;
+      }
+    }
+    onPatch(patch);
+  }
 
   return (
     <div style={s.condCard}>
       <div style={s.condHead}>
         <span style={s.condIndex}>{index + 1}</span>
-        <select style={{ ...s.sel, flex: 1 }} value={cond.source || 'variable'} onChange={e => onPatch({ source: e.target.value, key: '', varName: '', operator: e.target.value === 'achievement' ? 'has' : '==' })}>
+        <select style={{ ...s.sel, flex: 1 }} value={source} onChange={e => onPatch({ source: e.target.value, key: '', varName: '', operator: e.target.value === 'achievement' ? 'has' : '==', value: '' })}>
           {COND_SOURCES.map(src => <option key={src.value} value={src.value}>{src.label}</option>)}
         </select>
         <button style={{ ...s.ctrl, color: '#fc8181' }} onClick={onDelete} disabled={total <= 1}>×</button>
       </div>
       <SuggestionInput
         value={cond.key || ''}
-        source={cond.source || 'variable'}
+        source={source}
         suggestions={suggestions}
         systemNames={systemNames}
-        onChange={value => onPatch({ key: value, varName: value })}
+        onChange={patchKey}
       />
-      <select style={s.sel} value={cond.operator || ops[0]} onChange={e => onPatch({ operator: e.target.value })}>
+      <select style={s.sel} value={operator} onChange={e => onPatch({ operator: e.target.value })}>
         {ops.map(op => <option key={op} value={op}>{op}</option>)}
       </select>
       {!isAch && (
+        isBool ? (
+          <BoolButtons value={cond.value === true || cond.value === 'true'} onChange={value => onPatch({ value })} />
+        ) : (
         <input style={s.inp} value={cond.value ?? ''} placeholder="Значение"
           onChange={e => onPatch({ value: e.target.value })} onKeyDown={e => e.stopPropagation()} />
+        )
       )}
     </div>
   );

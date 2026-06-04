@@ -542,7 +542,7 @@ export function useSimulator(nodes, edges, initVars) {
           }
           if (chosen) {
             pushLog({ kind: 'condition', nodeId, msg: `→ "${chosen.label}"` });
-            nodeId = getNext(edges, nodes, nodeId, `branch-${chosen.id}`);
+            nodeId = getNext(edges, nodes, nodeId, `branch-${chosen.id}`) || getNext(edges, nodes, nodeId, `branch-left-${chosen.id}`);
           } else {
             pushLog({ kind: 'skip', nodeId, msg: 'Ни одна ветка не сработала' });
             nodeId = null;

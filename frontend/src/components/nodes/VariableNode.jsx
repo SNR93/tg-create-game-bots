@@ -1,10 +1,14 @@
 import React from 'react';
-import { Handle, Position } from '@xyflow/react';
+import { Handle, Position, useEdges, useNodeId } from '@xyflow/react';
 
 const ACT = { set: '=', increment: '+', decrement: '−' };
 
 export default function VariableNode({ data, selected }) {
   const entries = data.entries || [];
+  const nodeId = useNodeId();
+  const edges = useEdges();
+  const leftConnected  = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue-left');
+  const rightConnected = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue');
 
   return (
     <div style={{
@@ -35,8 +39,22 @@ export default function VariableNode({ data, selected }) {
       ))}
 
       <div style={s.cont}>
+        <Handle
+          type="source"
+          position={Position.Left}
+          id="continue-left"
+          title="Left output"
+          style={{ ...s.hOut, left: -6, right: 'auto', opacity: rightConnected ? 0.25 : 1 }}
+          isConnectable={!rightConnected}
+        />
         <span style={s.contLabel}>Продолжить</span>
-        <Handle type="source" position={Position.Right} id="continue" style={s.hOut} />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="continue"
+          style={{ ...s.hOut, opacity: leftConnected ? 0.25 : 1 }}
+          isConnectable={!leftConnected}
+        />
       </div>
       {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}
     </div>

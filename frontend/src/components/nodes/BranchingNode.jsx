@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
+import { Handle, Position, useEdges, useUpdateNodeInternals } from '@xyflow/react';
 
 function condSummary(conditions) {
   if (!conditions || conditions.length === 0) return '(иначе)';
@@ -10,6 +10,7 @@ function condSummary(conditions) {
 
 export default function BranchingNode({ id, data, selected }) {
   const updateNodeInternals = useUpdateNodeInternals();
+  const edges = useEdges();
   const branches = data.branches || [];
 
   const rowRefs = useRef([]);
@@ -51,18 +52,38 @@ export default function BranchingNode({ id, data, selected }) {
         const hTop = hTops[i] ?? 0;
         const vis  = hTops[i] !== undefined ? 1 : 0;
         const summary = condSummary(branch.conditions);
+        const leftHandle = `branch-left-${branch.id}`;
+        const rightHandle = `branch-${branch.id}`;
+        const lUsed = edges.some(edge => edge.source === id && edge.sourceHandle === leftHandle);
+        const rUsed = edges.some(edge => edge.source === id && edge.sourceHandle === rightHandle);
 
         return (
           <div key={branch.id}
             ref={el => { rowRefs.current[i] = el; }}
             style={s.row}>
+            <Handle type="source" position={Position.Left} id={leftHandle}
+              isConnectable={!rUsed}
+              style={{
+                ...s.hOut,
+                top: hTop,
+                left: -6,
+                opacity: vis * (rUsed ? 0.3 : 1),
+                background: rUsed ? '#1e2030' : '#38bdf8',
+                borderColor: rUsed ? '#3a3f55' : '#0f172a',
+              }} />
             <div style={s.rowContent}>
               <span style={s.cond}>{summary}</span>
               <span style={s.label}>{branch.label || `Ветка ${i + 1}`}</span>
             </div>
-            <Handle type="source" position={Position.Right} id={`branch-${branch.id}`}
+            <Handle type="source" position={Position.Right} id={rightHandle}
+              isConnectable={!lUsed}
               style={{
-                ...s.hOut, top: hTop, right: -6, opacity: vis,
+                ...s.hOut,
+                top: hTop,
+                right: -6,
+                opacity: vis * (lUsed ? 0.3 : 1),
+                background: lUsed ? '#1e2030' : '#38bdf8',
+                borderColor: lUsed ? '#3a3f55' : '#0f172a',
               }} />
           </div>
         );
@@ -94,11 +115,11 @@ const s = {
   cond:  { fontSize: 10, color: '#718096', fontFamily: 'monospace', overflow: 'hidden', whiteSpace: 'nowrap' },
   label: { fontSize: 12, fontWeight: 600, color: '#cbd5e0' },
   hIn: {
-    background: '#f6ad55', border: '2px solid #0f172a',
+    background: '#38bdf8', border: '2px solid #0f172a',
     width: 12, height: 12, left: -6, top: 19, transform: 'none',
   },
   hOut: {
-    background: '#f6ad55', border: '2px solid #0f172a',
+    background: '#38bdf8', border: '2px solid #0f172a',
     width: 12, height: 12, transform: 'none',
   },
   id: { padding: '4px 14px 7px', fontSize: 10, color: '#4a5568', textAlign: 'center' },

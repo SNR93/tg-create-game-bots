@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ADDABLE_NODES } from '../nodes/nodeCatalog';
 
-export default function ContextMenu({ x, y, onSelect, onClose }) {
+export default function ContextMenu({ x, y, onSelect, onClose, allowedTypes = null }) {
   const [query, setQuery] = useState('');
   const ref = useRef(null);
   const inputRef = useRef(null);
@@ -19,14 +19,17 @@ export default function ContextMenu({ x, y, onSelect, onClose }) {
     delayNode: 'пауза ожидание',
   };
   const preferred = ['simpleMessageNode', 'messageChainNode', 'keyboardNode'];
+  const availableNodes = allowedTypes?.length
+    ? ADDABLE_NODES.filter(node => allowedTypes.includes(node.type))
+    : ADDABLE_NODES;
   const orderedNodes = !query.trim()
-    ? [...ADDABLE_NODES].sort((a, b) => {
+    ? [...availableNodes].sort((a, b) => {
         const ai = preferred.indexOf(a.type);
         const bi = preferred.indexOf(b.type);
         if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
         return 0;
       })
-    : ADDABLE_NODES;
+    : availableNodes;
   const filtered = orderedNodes.filter(n =>
     !query.trim() || `${n.label} ${n.desc} ${aliases[n.type] || ''}`.toLowerCase().includes(query.toLowerCase())
   );

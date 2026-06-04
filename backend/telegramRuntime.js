@@ -786,7 +786,9 @@ class TelegramRuntime {
 
         case 'branchingNode': {
           const branch = (node.data.branches || []).find(b => (b.conditions || []).length === 0 || b.conditions.every(cond => branchMatches(cond, session)));
-          nodeId = branch ? getNext(bot.edges, bot.nodes, node.id, `branch-${branch.id}`) : null;
+          nodeId = branch
+            ? getNext(bot.edges, bot.nodes, node.id, `branch-${branch.id}`) || getNext(bot.edges, bot.nodes, node.id, `branch-left-${branch.id}`)
+            : null;
           break;
         }
 
