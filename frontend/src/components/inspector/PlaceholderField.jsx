@@ -34,8 +34,12 @@ function renderHighlightedText(value, placeholders) {
   return parts;
 }
 
-export default function PlaceholderField({ as = 'input', value = '', onChange, style, maxLength, showCounter = false, formatting = false, ...props }) {
-  const placeholders = useContext(PlaceholderContext);
+export default function PlaceholderField({ as = 'input', value = '', onChange, style, maxLength, showCounter = false, formatting = false, extraPlaceholders, ...props }) {
+  const contextPlaceholders = useContext(PlaceholderContext);
+  const placeholders = useMemo(
+    () => extraPlaceholders?.length ? [...contextPlaceholders, ...extraPlaceholders] : contextPlaceholders,
+    [contextPlaceholders, extraPlaceholders],
+  );
   const inputRef = useRef(null);
   const mirrorRef = useRef(null);
   const [query, setQuery] = useState(null);

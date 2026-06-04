@@ -312,9 +312,11 @@ export function RelationInspector({ data, onUpdate }) {
   return (
     <Section title="Изменить репутацию">
       <div style={s.hint}>
-        Каждая запись доступна в плейсхолдере вида{' '}
-        <code style={{ color: '#38bdf8' }}>{'{{reputation.person.Харбек Крепкоплечий}}'}</code>.
-        Тип определяет вторую часть ключа (person / guild / city / ...).
+        Каждая запись доступна как число:{' '}
+        <code style={{ color: '#38bdf8' }}>{'{{reputation.person.Харбек}}'}</code>.
+        Чтобы вывести текстовый статус («Враждебный» / «Союзник» и т.д.) — используйте ноду{' '}
+        <b style={{ color: '#a0aec0' }}>«Уровни репутации»</b>, она создаёт плейсхолдер{' '}
+        <code style={{ color: '#38bdf8' }}>{'{{reputation.status.person.Харбек}}'}</code>.
       </div>
       {entries.length === 0 && <div style={s.hint}>Нет изменений. Добавьте запись ниже.</div>}
       {entries.map(entry => {
@@ -365,6 +367,7 @@ export function RelationInspector({ data, onUpdate }) {
                     rows={2}
                     value={entry.notifyText || ''}
                     placeholder={`Ваше отношение с "{{reputation.target}}" стало {{reputation.value}}.`}
+                    extraPlaceholders={['reputation.target', 'reputation.value']}
                     onChange={e => patch(entry.id, { notifyText: e.target.value })}
                     style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical', minHeight: 48 }}
                   />

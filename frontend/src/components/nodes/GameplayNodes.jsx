@@ -101,12 +101,11 @@ export function RelationNode({ data, selected }) {
   return <Frame selected={selected} icon="♥" title={data.title || 'Репутация'} data={data}>
     {entries.length === 0 && <div style={s.empty}>Нет изменений</div>}
     {entries.map(entry => {
-      const key = (entry.reputationType && entry.reputationTarget)
-        ? `${entry.reputationType}.${entry.reputationTarget}`
-        : (entry.characterKey || '?');
+      const target = entry.reputationTarget || entry.characterKey || '?';
+      const act = entry.action === 'add' ? '+' : entry.action === 'subtract' ? '−' : '=';
       return <div key={entry.id} style={s.row}>
-        <span style={s.key}>{key}</span>
-        <span style={s.value}>{entry.action || 'add'} {entry.value ?? 1}</span>
+        <span style={s.key}>{target}</span>
+        <span style={s.value}>{act}{entry.value ?? 1}{entry.notify ? ' 🔔' : ''}</span>
       </div>;
     })}
   </Frame>;
