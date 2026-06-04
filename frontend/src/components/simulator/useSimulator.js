@@ -213,12 +213,18 @@ export function useSimulator(nodes, edges, initVars) {
       dynamic['achievements.total'] = { type: 'number', value: achievementKeys.size };
       for (const node of nodes || []) {
         if (node.type !== 'codexNode') continue;
-        const name = codexVariableName(node.data);
-        if (!name) continue;
-        dynamic[name] = {
-          type: 'text',
-          value: runtimeVarsRef.current?.[name]?.value ? String(node.data?.text || '') : '',
-        };
+        const entries = node.data?.entries?.length > 0
+          ? node.data.entries
+          : node.data?.codexKey ? [{ codexKey: node.data.codexKey, text: node.data.text }] : [];
+        for (const entry of entries) {
+          const name = codexVariableName(entry);
+          if (!name) continue;
+          const varEntry = runtimeVarsRef.current?.[name];
+          dynamic[name] = {
+            type: 'text',
+            value: varEntry?.type === 'text' ? String(varEntry.value || '') : (varEntry?.value ? String(entry.text || '') : ''),
+          };
+        }
       }
       return { ...systemVars, ...globalVars, ...runtimeVarsRef.current, ...dynamic };
     };
@@ -687,15 +693,31 @@ export function useSimulator(nodes, edges, initVars) {
           break;
         }
 
-        case 'codexNode': {
-          const name = codexVariableName(node.data);
-          if (name) {
-            setRuntimeVars(v => ({ ...v, [name]: { type: 'boolean', value: true } }));
-            runtimeVarsRef.current = { ...runtimeVarsRef.current, [name]: { type: 'boolean', value: true } };
-            pushLog({ kind: 'var', nodeId, msg: `${name} = true` });
-            if (node.data.showOnUnlock !== false && node.data.text) {
-              pushMsg({ from: 'bot', type: 'text', text: interpolate(node.data.text, templateVars()) });
-            }
+        case 'codexNode':
+          nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
+          break;
+
+        case 'unlockCodexNode': {
+          for (const entry of node.data.entries || []) {
+            const name = codexVariableName(entry);
+            if (!name) continue;
+            const val = entry.value !== false;
+            setRuntimeVars(v => ({ ...v, [name]: { type: 'boolean', value: val } }));
+            runtimeVarsRef.current = { ...runtimeVarsRef.current, [name]: { type: 'boolean', value: val } };
+            pushLog({ kind: 'var', nodeId, msg: `${name} = ${val}` });
+          }
+          nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
+          break;
+        }
+
+        case 'editCodexNode': {
+          for (const entry of node.data.entries || []) {
+            const name = codexVariableName(entry);
+            if (!name) continue;
+            const text = interpolate(entry.text || '', templateVars());
+            setRuntimeVars(v => ({ ...v, [name]: { type: 'text', value: text } }));
+            runtimeVarsRef.current = { ...runtimeVarsRef.current, [name]: { type: 'text', value: text } };
+            pushLog({ kind: 'var', nodeId, msg: `${name} = "${text.slice(0, 40)}"` });
           }
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;

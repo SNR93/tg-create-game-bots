@@ -751,26 +751,9 @@ class TelegramRuntime {
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
 
-        case 'codexNode': {
-          const codexEntries = node.data.entries?.length > 0
-            ? node.data.entries
-            : node.data.codexKey
-              ? [{ codexKey: node.data.codexKey, text: node.data.text, showOnUnlock: node.data.showOnUnlock }]
-              : [];
-          session.vars ||= {};
-          for (const entry of codexEntries) {
-            const name = codexVariableName(entry);
-            if (!name) continue;
-            session.vars[name] = { type: 'boolean', value: true };
-            if (entry.text) {
-              const text = this.interp(entry.text, this.templateVars(session), chatId, node.id);
-              await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });
-            }
-          }
-          if (codexEntries.length > 0) await playerStore.saveVariables(this.botId, session.playerId, session.vars);
+        case 'codexNode':
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
-        }
 
         case 'inventoryNode':
           session.inventory ||= {};
