@@ -43,6 +43,8 @@ import { getBot } from '../../api';
 function extractBotSuggestions(nodes) {
   const variables = {};
   const inventoryKeys = new Set();
+  const characterKeys = new Set();
+  const achievementKeys = new Set();
   for (const node of nodes || []) {
     if (node.type === 'variableNode') {
       for (const e of node.data?.entries || []) {
@@ -65,12 +67,20 @@ function extractBotSuggestions(nodes) {
         if (e.itemKey) inventoryKeys.add(e.itemKey);
       }
     }
+    if (node.type === 'relationNode') {
+      for (const e of node.data?.entries || []) {
+        if (e.characterKey) characterKeys.add(e.characterKey);
+      }
+    }
+    if (node.type === 'achievementNode' && node.data?.achievementKey) {
+      achievementKeys.add(node.data.achievementKey);
+    }
   }
-  return { variables, inventoryKeys: [...inventoryKeys] };
+  return { variables, inventoryKeys: [...inventoryKeys], characterKeys: [...characterKeys], achievementKeys: [...achievementKeys] };
 }
 
 function useBotSuggestions(botId) {
-  const [suggestions, setSuggestions] = useState({ variables: {}, inventoryKeys: [] });
+  const [suggestions, setSuggestions] = useState({ variables: {}, inventoryKeys: [], characterKeys: [], achievementKeys: [] });
   useEffect(() => {
     if (!botId) return;
     getBot(botId).then(bot => setSuggestions(extractBotSuggestions(bot?.nodes))).catch(() => {});
@@ -447,45 +457,71 @@ export default function AdminPanel({ botId, onClose }) {
 }
 
 function VariableSection({ botId, player, busy, run }) {
+  const { variables: schema } = useBotSuggestions(botId);
   const [name, setName] = useState('');
   const [type, setType] = useState('number');
   const [value, setValue] = useState('0');
 
+  function handleNameSelect(n) {
+    setName(n);
+    const known = schema[n];
+    if (known) {
+      setType(known.type);
+      setValue(known.type === 'boolean' ? 'false' : known.type === 'number' ? '0' : '');
+    }
+  }
+
+  const varNames = Object.keys(schema);
+
   return (
     <Section title="Переменные">
-      {Object.entries(player.variables).map(([varName, variable]) => (
-        <form key={varName} style={s.editRow} onSubmit={event => {
-          event.preventDefault();
-          const form = new FormData(event.currentTarget);
-          run(() => setBotPlayerVariable(botId, player.telegram_user_id, varName, {
-            type: form.get('type'),
-            value: parseValue(form.get('type'), form.get('value')),
-          }));
-        }}>
-          <span style={s.key}>{varName}</span>
-          <select name="type" defaultValue={variable.type} style={s.select}>
-            <option value="number">число</option>
-            <option value="boolean">логика</option>
-            <option value="text">текст</option>
-          </select>
-          <input name="value" defaultValue={String(variable.value)} style={s.smallInput} />
-          <button style={s.save} disabled={busy}>Сохранить</button>
-          <button type="button" style={s.iconDanger} onClick={() => run(() => deleteBotPlayerVariable(botId, player.telegram_user_id, varName))}>×</button>
-        </form>
-      ))}
+      {Object.entries(player.variables).map(([varName, variable]) => {
+        const knownType = schema[varName]?.type || variable.type;
+        return (
+          <form key={varName} style={s.editRow} onSubmit={event => {
+            event.preventDefault();
+            run(() => setBotPlayerVariable(botId, player.telegram_user_id, varName, {
+              type: knownType,
+              value: parseValue(knownType, new FormData(event.currentTarget).get('value')),
+            }));
+          }}>
+            <span style={s.key}>{varName}</span>
+            <span style={{ ...s.select, display: 'inline-flex', alignItems: 'center', color: '#94a3b8', background: '#0f172a', borderRadius: 5, padding: '0 8px', fontSize: 12, height: 30, flexShrink: 0 }}>
+              {knownType === 'number' ? 'число' : knownType === 'boolean' ? 'логика' : 'текст'}
+            </span>
+            {knownType === 'boolean'
+              ? <select name="value" defaultValue={String(variable.value)} style={s.select}>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              : <input name="value" defaultValue={String(variable.value)} style={s.smallInput} type={knownType === 'number' ? 'number' : 'text'} />
+            }
+            <button style={s.save} disabled={busy}>Сохранить</button>
+            <button type="button" style={s.iconDanger} onClick={() => run(() => deleteBotPlayerVariable(botId, player.telegram_user_id, varName))}>×</button>
+          </form>
+        );
+      })}
       <form style={s.createRow} onSubmit={event => {
         event.preventDefault();
         if (!name.trim()) return;
         run(() => setBotPlayerVariable(botId, player.telegram_user_id, name.trim(), { type, value: parseValue(type, value) }));
         setName('');
+        setValue('0');
       }}>
-        <input style={s.smallInput} placeholder="Новая переменная" value={name} onChange={event => setName(event.target.value)} />
-        <select style={s.select} value={type} onChange={event => setType(event.target.value)}>
-          <option value="number">число</option>
-          <option value="boolean">логика</option>
-          <option value="text">текст</option>
-        </select>
-        <input style={s.smallInput} value={value} onChange={event => setValue(event.target.value)} />
+        <SuggestInput
+          value={name} suggestions={varNames} placeholder="Новая переменная"
+          style={s.smallInput} onChange={handleNameSelect}
+        />
+        <span style={{ ...s.select, display: 'inline-flex', alignItems: 'center', color: '#94a3b8', background: '#0f172a', borderRadius: 5, padding: '0 8px', fontSize: 12, height: 30, flexShrink: 0 }}>
+          {type === 'number' ? 'число' : type === 'boolean' ? 'логика' : 'текст'}
+        </span>
+        {type === 'boolean'
+          ? <select style={s.select} value={value} onChange={event => setValue(event.target.value)}>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          : <input style={s.smallInput} value={value} type={type === 'number' ? 'number' : 'text'} onChange={event => setValue(event.target.value)} />
+        }
         <button style={s.primary} disabled={busy}>Добавить</button>
       </form>
     </Section>
@@ -493,6 +529,7 @@ function VariableSection({ botId, player, busy, run }) {
 }
 
 function InventorySection({ botId, player, busy, run }) {
+  const { inventoryKeys } = useBotSuggestions(botId);
   const [itemKey, setItemKey] = useState('');
   const [quantity, setQuantity] = useState(1);
 
@@ -517,7 +554,10 @@ function InventorySection({ botId, player, busy, run }) {
         setItemKey('');
         setQuantity(1);
       }}>
-        <input style={s.smallInput} placeholder="Новый предмет" value={itemKey} onChange={event => setItemKey(event.target.value)} />
+        <SuggestInput
+          value={itemKey} suggestions={inventoryKeys} placeholder="Предмет из сценария"
+          style={s.smallInput} onChange={setItemKey}
+        />
         <input style={s.quantity} type="number" min="1" value={quantity} onChange={event => setQuantity(event.target.value)} />
         <button style={s.primary} disabled={busy}>Добавить</button>
       </form>
@@ -526,6 +566,7 @@ function InventorySection({ botId, player, busy, run }) {
 }
 
 function RelationSection({ botId, player, busy, run }) {
+  const { characterKeys } = useBotSuggestions(botId);
   const [key, setKey] = useState('');
   const [value, setValue] = useState(0);
   return <Section title="Отношения с персонажами">
@@ -534,7 +575,10 @@ function RelationSection({ botId, player, busy, run }) {
       <button style={s.iconDanger} onClick={() => run(() => deleteBotPlayerRelation(botId, player.telegram_user_id, item.character_key))}>×</button>
     </div>)}
     <form style={s.createRow} onSubmit={event => { event.preventDefault(); if (!key.trim()) return; run(() => setBotPlayerRelation(botId, player.telegram_user_id, key.trim(), { value: +value })); setKey(''); }}>
-      <input style={s.smallInput} placeholder="Персонаж" value={key} onChange={event => setKey(event.target.value)} />
+      <SuggestInput
+        value={key} suggestions={characterKeys} placeholder="Персонаж из сценария"
+        style={s.smallInput} onChange={setKey}
+      />
       <input style={s.quantity} type="number" value={value} onChange={event => setValue(event.target.value)} />
       <button style={s.primary} disabled={busy}>Добавить</button>
     </form>
@@ -542,6 +586,7 @@ function RelationSection({ botId, player, busy, run }) {
 }
 
 function AchievementSection({ botId, player, busy, run }) {
+  const { achievementKeys } = useBotSuggestions(botId);
   const [key, setKey] = useState('');
   return <Section title="Достижения">
     {player.achievements.map(item => <div key={item.achievement_key} style={s.editRow}>
@@ -549,7 +594,10 @@ function AchievementSection({ botId, player, busy, run }) {
       <button style={s.iconDanger} onClick={() => run(() => deleteBotPlayerAchievement(botId, player.telegram_user_id, item.achievement_key))}>×</button>
     </div>)}
     <form style={s.createRow} onSubmit={event => { event.preventDefault(); if (!key.trim()) return; run(() => setBotPlayerAchievement(botId, player.telegram_user_id, key.trim())); setKey(''); }}>
-      <input style={s.smallInput} placeholder="Ключ достижения" value={key} onChange={event => setKey(event.target.value)} />
+      <SuggestInput
+        value={key} suggestions={achievementKeys} placeholder="Достижение из сценария"
+        style={s.smallInput} onChange={setKey}
+      />
       <button style={s.primary} disabled={busy}>Выдать</button>
     </form>
   </Section>;
@@ -602,7 +650,20 @@ function ManagementPanel({ botId, tab, setError }) {
 
   if (tab === 'versions') return <div style={s.management}>
     <button style={s.primary} onClick={() => execute(() => createBotVersion(botId))}>Создать снимок версии</button>
-    <div style={{ ...s.metric, marginTop: 8 }}>Rollout задаёт долю игроков, которые получат новую версию при следующем /start. Прогресс не сбрасывается.</div>
+    <div style={{ background: '#0f172a', border: '1px solid #2d3458', borderRadius: 8, padding: '12px 14px', marginTop: 10, color: '#94a3b8', fontSize: 13, lineHeight: 1.7 }}>
+      <div style={{ color: '#e0e7ff', fontWeight: 700, marginBottom: 6 }}>Что такое версии и зачем они нужны</div>
+      <p style={{ margin: '0 0 8px' }}>Версия — это точная копия (снимок) вашего сценария в момент создания. Если вы внесёте изменения и что-то сломается, можно опубликовать старую версию и всё вернётся.</p>
+      <div style={{ color: '#c4b5fd', fontWeight: 600, marginBottom: 4 }}>Как это работает:</div>
+      <ol style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+        <li>Нажмите «Создать снимок версии» — система сохраняет текущий сценарий.</li>
+        <li>Рядом со снимком укажите <b>Rollout %</b> и нажмите «Опубликовать».</li>
+        <li>Новые игроки, которые напишут /start, получат эту версию сценария.</li>
+      </ol>
+      <div style={{ color: '#c4b5fd', fontWeight: 600, marginBottom: 4 }}>Что такое Rollout %:</div>
+      <p style={{ margin: '0 0 8px' }}>Это процент <b>новых</b> игроков, которые получат новую версию. Например: Rollout 10% — только каждый десятый новый игрок попадёт на новую версию, остальные 90% продолжат играть на старой. Это позволяет тестировать изменения на небольшой аудитории, прежде чем раскатывать на всех.</p>
+      <p style={{ margin: '0 0 4px' }}><b>Важно:</b> прогресс игроков не сбрасывается. Уже играющие остаются на своей версии — они переходят на новую только если вы публикуете с Rollout 100%.</p>
+      <p style={{ margin: 0, color: '#64748b', fontSize: 12 }}>Хранится не более 50 архивных версий. Самые старые удаляются автоматически при создании новой. Опубликованные версии не удаляются.</p>
+    </div>
     <SimpleRows items={items} title="Версии сценария" render={item => `v${item.version_number} · ${item.status} · rollout ${item.rollout_percentage}% · ${new Date(item.created_at).toLocaleString('ru')}`} action={(item) => item.status !== 'published' && <>
       <input style={s.quantity} type="number" min="1" max="100" value={form.rollout || 100} onChange={event => update('rollout', event.target.value)} />
       <button style={s.save} onClick={() => execute(() => publishBotVersion(botId, item.id, +form.rollout || 100))}>Опубликовать</button>
