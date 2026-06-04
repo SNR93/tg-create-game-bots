@@ -14,11 +14,75 @@ import GroupInspector from './GroupInspector';
 import NodeHelp from './NodeHelp';
 import { PlaceholderProvider } from './PlaceholderField';
 import { getNodeMeta } from '../nodes/nodeCatalog';
-import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CheckpointInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, ReturnInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector } from './GameplayInspectors';
+import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CheckpointInspector, CodexInspector, EditCodexInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, ResetProgressInspector, ReturnInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector, UnlockCodexInspector } from './GameplayInspectors';
 import NodeHistoryPanel from './NodeHistoryPanel';
 
-export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, botVariables, allBotVariables, placeholderVariables, botId, nodes }) {
+function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placeholderVariables, botId, nodes, onRenameVariable }) {
+  const noop = () => {};
+  const upd = onUpdate || noop;
+  return (
+    <PlaceholderProvider botVariables={placeholderVariables || allBotVariables || botVariables}>
+    <div>
+      {node.type === 'messageChainNode'  && <MessageChainInspector  data={node.data} onUpdate={p => upd(node.id, p)} botId={botId} />}
+      {node.type === 'startNode'         && <StartInspector         data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'applicationNode'   && <ApplicationInspector   data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'delayNode'         && <DelayInspector         data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'simpleMessageNode' && <SimpleMessageInspector data={node.data} onUpdate={p => upd(node.id, p)} botId={botId} />}
+      {node.type === 'variableNode'      && <VariableInspector      data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables} onRenameVariable={onRenameVariable} />}
+      {node.type === 'keyboardNode'      && <KeyboardInspector      data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables || botVariables} placeholderVariables={placeholderVariables} nodes={nodes} />}
+      {node.type === 'branchingNode'    && <BranchingInspector    data={node.data} onUpdate={p => upd(node.id, p)} botVariables={botVariables} />}
+      {node.type === 'commentNode'      && <CommentInspector      data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'mediaNode'        && <MediaInspector        data={node.data} onUpdate={p => upd(node.id, p)} botId={botId} />}
+      {node.type === 'inventoryNode'    && <InventoryInspector    data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'inventoryViewNode' && <InventoryViewInspector data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'formulaNode'      && <FormulaInspector      data={node.data} onUpdate={p => upd(node.id, p)} botVariables={botVariables} />}
+      {node.type === 'randomNode'       && <RandomInspector       data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'checkpointNode'   && <CheckpointInspector   data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'resetProgressNode' && <ResetProgressInspector data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables || botVariables} />}
+      {node.type === 'relationNode'     && <RelationInspector     data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'achievementNode'  && <AchievementInspector  data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables || botVariables} />}
+      {node.type === 'achievementsViewNode' && <AchievementsViewInspector data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'promocodeNode'    && <PromocodeInspector    data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} botVariables={botVariables} />}
+      {node.type === 'subscenarioNode'      && <SubscenarioInspector      data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
+      {node.type === 'returnNode'           && <ReturnInspector           data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
+      {node.type === 'invokeCommandNode'    && <InvokeCommandInspector    data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
+      {node.type === 'textInputNode'        && <TextInputInspector        data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'editMessageNode'       && <EditMessageInspector       data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'pollNode'              && <PollInspector              data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'stickerNode'           && <StickerInspector           data={node.data} onUpdate={p => upd(node.id, p)} botId={botId} />}
+      {node.type === 'locationNode'          && <LocationInspector          data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'subscriptionCheckNode' && <SubscriptionCheckInspector data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'httpRequestNode'      && <HttpRequestInspector      data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'loopNode'             && <LoopInspector             data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'breakLoopNode'        && <BreakLoopInspector        data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
+      {node.type === 'globalVariableNode'   && <GlobalVariableInspector   data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'codexNode'            && <CodexInspector            data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {node.type === 'editCodexNode'        && <EditCodexInspector        data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
+      {node.type === 'unlockCodexNode'      && <UnlockCodexInspector      data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
+      {node.type === 'purchaseNode'     && <PurchaseInspector     data={node.data} onUpdate={p => upd(node.id, p)} />}
+      {['menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode'].includes(node.type) && <CommandEntryInspector type={node.type} data={node.data} onUpdate={p => upd(node.id, p)} />}
+    </div>
+    </PlaceholderProvider>
+  );
+}
+
+function ComparePanel({ node, initialData, label, labelColor, botVariables, allBotVariables, placeholderVariables, botId, nodes }) {
+  const [localData, setLocalData] = useState(initialData);
+  const localNode = { ...node, data: localData };
+  function handleLocalUpdate(nodeId, patch) { setLocalData(prev => ({ ...prev, ...patch })); }
+  return (
+    <div style={s.comparePanel}>
+      <div style={{ ...s.comparePanelLabel, color: labelColor }}>{label}</div>
+      <div style={s.comparePanelBody}>
+        <InspectorBody node={localNode} onUpdate={handleLocalUpdate} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={botId} nodes={nodes} />
+      </div>
+    </div>
+  );
+}
+
+export default function NodeInspector({ node, onUpdate, onUpdateNode, onRenameVariable, onClose, botVariables, allBotVariables, placeholderVariables, botId, nodes }) {
   const [showHistory, setShowHistory] = useState(false);
+  const [compareData, setCompareData] = useState(null);
   if (!node) return null;
   const meta = getNodeMeta(node.type);
 
@@ -51,46 +115,41 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, b
           currentData={node.data}
           onRestore={data => onUpdate(node.id, data)}
           onClose={() => setShowHistory(false)}
+          onRequestCompare={data => { setShowHistory(false); setCompareData(data); }}
         />
       )}
 
-      <PlaceholderProvider botVariables={placeholderVariables || allBotVariables || botVariables}>
+      {compareData && (
+        <div style={s.compareOverlay} onMouseDown={e => { if (e.target === e.currentTarget) setCompareData(null); }}>
+          <div style={s.compareModal}>
+            <div style={s.compareHeader}>
+              <div style={s.compareTitle}>Сравнение версий · {meta.icon} {meta.label}</div>
+              <button style={s.closeBtn} onClick={() => setCompareData(null)}>×</button>
+            </div>
+            <div style={s.comparePanels}>
+              <ComparePanel node={node} initialData={compareData} label="📜 Историческая версия" labelColor="#fc8181"
+                botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={botId} nodes={nodes} />
+              <ComparePanel node={node} initialData={node.data} label="✅ Текущая версия" labelColor="#68d391"
+                botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={botId} nodes={nodes} />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={s.body}>
-        {node.type === 'messageChainNode'  && <MessageChainInspector  data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}
-        {node.type === 'startNode'         && <StartInspector         data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'applicationNode'   && <ApplicationInspector   data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'delayNode'         && <DelayInspector         data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'simpleMessageNode' && <SimpleMessageInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}
-        {node.type === 'variableNode'      && <VariableInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} botVariables={allBotVariables} />}
-        {node.type === 'keyboardNode'      && <KeyboardInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} botVariables={allBotVariables || botVariables} placeholderVariables={placeholderVariables} nodes={nodes} />}
-        {node.type === 'branchingNode'    && <BranchingInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} botVariables={botVariables} />}
-        {node.type === 'commentNode'      && <CommentInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'mediaNode'        && <MediaInspector        data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}
-        {node.type === 'inventoryNode'    && <InventoryInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'inventoryViewNode' && <InventoryViewInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'formulaNode'      && <FormulaInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} botVariables={botVariables} />}
-        {node.type === 'randomNode'       && <RandomInspector       data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'checkpointNode'   && <CheckpointInspector   data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'relationNode'     && <RelationInspector     data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'achievementNode'  && <AchievementInspector  data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'achievementsViewNode' && <AchievementsViewInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'promocodeNode'    && <PromocodeInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} botVariables={botVariables} />}
-        {node.type === 'subscenarioNode'      && <SubscenarioInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
-        {node.type === 'returnNode'           && <ReturnInspector           data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
-        {node.type === 'invokeCommandNode'    && <InvokeCommandInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
-        {node.type === 'textInputNode'        && <TextInputInspector        data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'editMessageNode'       && <EditMessageInspector       data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'pollNode'              && <PollInspector              data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'stickerNode'           && <StickerInspector           data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}
-        {node.type === 'locationNode'          && <LocationInspector          data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'subscriptionCheckNode' && <SubscriptionCheckInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'httpRequestNode'      && <HttpRequestInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'loopNode'             && <LoopInspector             data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'breakLoopNode'        && <BreakLoopInspector        data={node.data} onUpdate={p => onUpdate(node.id, p)} nodes={nodes} />}
-        {node.type === 'globalVariableNode'   && <GlobalVariableInspector   data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'purchaseNode'     && <PurchaseInspector     data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {['menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode'].includes(node.type) && <CommandEntryInspector type={node.type} data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
-        {node.type === 'groupNode'         && <GroupInspector node={node} onUpdateData={p => onUpdate(node.id, p)} onUpdateStyle={style => onUpdateNode(node.id, { style: { ...node.style, ...style } })} />}
+        {node.type !== 'commentNode' && node.type !== 'groupNode' && (
+          <div style={s.nodeNameWrap}>
+            <input
+              style={s.nodeNameInput}
+              value={node.data?.title || ''}
+              placeholder={meta.label}
+              onChange={e => onUpdate(node.id, { title: e.target.value })}
+              onKeyDown={e => e.stopPropagation()}
+            />
+          </div>
+        )}
+        <InspectorBody node={node} onUpdate={onUpdate} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={botId} nodes={nodes} onRenameVariable={onRenameVariable} />
+        {node.type === 'groupNode' && <GroupInspector node={node} onUpdateData={p => onUpdate(node.id, p)} onUpdateStyle={style => onUpdateNode(node.id, { style: { ...node.style, ...style } })} />}
 
         {/* Variables overview */}
         {varEntries.length > 0 && (
@@ -114,7 +173,6 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, b
           <code style={s.idVal}>{node.id}</code>
         </div>
       </div>
-      </PlaceholderProvider>
     </div>
   );
 }
@@ -144,7 +202,17 @@ const s = {
   varName: { color: '#a78bfa', fontWeight: 600, flex: 1 },
   varType: { color: '#4a5568', fontSize: 10 },
   varVal: { color: '#f6ad55', fontWeight: 600 },
+  nodeNameWrap: { padding: '10px 14px 6px', borderBottom: '1px solid #222436' },
+  nodeNameInput: { width: '100%', boxSizing: 'border-box', background: '#12131a', border: '1px solid #3a3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 13, fontWeight: 600, padding: '7px 10px', outline: 'none' },
   idRow: { padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 },
   idLabel: { fontSize: 11, color: '#4a5568' },
   idVal: { fontSize: 10, color: '#718096', background: '#12131a', borderRadius: 4, padding: '2px 6px', wordBreak: 'break-all', flex: 1 },
+  compareOverlay: { position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: 16 },
+  compareModal: { width: '100%', maxWidth: 1200, background: '#171927', border: '1px solid #343a5b', borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.7)' },
+  compareHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: '#1e2030', borderBottom: '1px solid #2d3458', flexShrink: 0 },
+  compareTitle: { color: '#e2e8f0', fontSize: 15, fontWeight: 700 },
+  comparePanels: { flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: '#2d3458', overflow: 'hidden' },
+  comparePanel: { background: '#1a1c2a', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  comparePanelLabel: { padding: '10px 16px', fontSize: 12, fontWeight: 700, color: '#fc8181', background: '#12131a', borderBottom: '1px solid #2d3458', flexShrink: 0 },
+  comparePanelBody: { flex: 1, overflowY: 'auto' },
 };

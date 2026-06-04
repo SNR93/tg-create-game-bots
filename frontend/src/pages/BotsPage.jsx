@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listBots, createBot, deleteBot, updateBotComment } from '../api';
+import { changePassword, createBot, createUser, deleteBot, deleteUser, getProfile, listBots, listUsers, updateBotComment, updateProfile, updateUser } from '../api';
 
 export default function BotsPage({ user, onLogout }) {
   const [bots, setBots] = useState([]);
@@ -10,7 +10,10 @@ export default function BotsPage({ user, onLogout }) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [commentStatus, setCommentStatus] = useState({});
+  const [showProfile, setShowProfile] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   const navigate = useNavigate();
+  const canManageUsers = user?.login === 'admin' || user?.login === 'SNR93' || user?.role === 'admin';
 
   useEffect(() => {
     listBots()
@@ -79,7 +82,11 @@ export default function BotsPage({ user, onLogout }) {
           <h1 style={styles.title}>TG Bot Constructor</h1>
           <p style={styles.subtitle}>Пользователь: {user?.login}</p>
         </div>
-        <button style={styles.btnSecondary} onClick={onLogout}>Выйти</button>
+        <div style={styles.headerActions}>
+          <button style={styles.btnSecondary} onClick={() => setShowProfile(true)}>Профиль</button>
+          {canManageUsers && <button style={styles.btnSecondary} onClick={() => setShowUsers(true)}>Пользователи</button>}
+          <button style={styles.btnSecondary} onClick={onLogout}>Выйти</button>
+        </div>
       </header>
 
       <section style={styles.createBox}>
@@ -93,12 +100,13 @@ export default function BotsPage({ user, onLogout }) {
           }}
           onKeyDown={e => e.key === 'Enter' && handleCreate()}
         />
-        <input
+        <textarea
           style={styles.commentInput}
           placeholder="Комментарий о боте"
           value={newComment}
           onChange={e => setNewComment(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleCreate()}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleCreate(); }}
+          rows={Math.max(1, Math.ceil((newComment.length || 1) / 70))}
         />
         <button style={styles.btnCreate} onClick={handleCreate} disabled={creating}>
           {creating ? 'Создание...' : 'Создать бота'}
@@ -136,6 +144,7 @@ export default function BotsPage({ user, onLogout }) {
                 style={styles.commentArea}
                 value={comments[bot.id] || ''}
                 maxLength={500}
+                rows={Math.max(2, Math.ceil(((comments[bot.id] || '').length || 1) / 58))}
                 placeholder="Добавить комментарий"
                 onChange={e => setComments(prev => ({ ...prev, [bot.id]: e.target.value }))}
                 onBlur={() => handleCommentSave(bot.id)}
@@ -149,6 +158,143 @@ export default function BotsPage({ user, onLogout }) {
           </div>
         ))}
       </section>
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} onUser={profile => {}} />}
+      {showUsers && <UsersModal currentUser={user} onClose={() => setShowUsers(false)} />}
+    </div>
+  );
+}
+
+function ProfileModal({ onClose }) {
+  const [profile, setProfile] = useState(null);
+  const [form, setForm] = useState({ avatar: '', about: '' });
+  const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '' });
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getProfile().then(data => {
+      setProfile(data);
+      setForm({ avatar: data.avatar || '', about: data.about || '' });
+    }).catch(error => setError(error.message));
+  }, []);
+
+  async function saveProfile() {
+    setError('');
+    try {
+      const saved = await updateProfile(form);
+      setProfile(saved);
+      setStatus('Профиль сохранён');
+    } catch (error) { setError(error.message); }
+  }
+
+  async function savePassword() {
+    setError('');
+    try {
+      await changePassword(passwords.currentPassword, passwords.newPassword);
+      setPasswords({ currentPassword: '', newPassword: '' });
+      setStatus('Пароль изменён');
+    } catch (error) { setError(error.message); }
+  }
+
+  return (
+    <div style={styles.modalOverlay} onMouseDown={onClose}>
+      <div style={styles.modal} onMouseDown={e => e.stopPropagation()}>
+        <div style={styles.modalHead}>
+          <div>
+            <div style={styles.modalTitle}>Профиль</div>
+            <div style={styles.modalSub}>{profile?.login || ''}</div>
+          </div>
+          <button style={styles.modalClose} onClick={onClose}>×</button>
+        </div>
+        {profile?.avatar && <img src={profile.avatar} alt="" style={styles.avatarPreview} />}
+        <input style={styles.input} placeholder="URL аватара" value={form.avatar} onChange={e => setForm(v => ({ ...v, avatar: e.target.value }))} />
+        <textarea style={styles.profileText} rows={5} placeholder="О себе" value={form.about} onChange={e => setForm(v => ({ ...v, about: e.target.value }))} />
+        <button style={styles.btnCreate} onClick={saveProfile}>Сохранить профиль</button>
+        <div style={styles.passwordGrid}>
+          <input style={styles.input} type="password" placeholder="Текущий пароль" value={passwords.currentPassword} onChange={e => setPasswords(v => ({ ...v, currentPassword: e.target.value }))} />
+          <input style={styles.input} type="password" placeholder="Новый пароль" value={passwords.newPassword} onChange={e => setPasswords(v => ({ ...v, newPassword: e.target.value }))} />
+          <button style={styles.btnSecondary} onClick={savePassword}>Изменить пароль</button>
+        </div>
+        {status && <div style={styles.ok}>{status}</div>}
+        {error && <div style={styles.error}>{error}</div>}
+      </div>
+    </div>
+  );
+}
+
+function UsersModal({ currentUser, onClose }) {
+  const [users, setUsers] = useState([]);
+  const [draft, setDraft] = useState({ login: '', password: '', role: 'user', avatar: '', about: '' });
+  const [error, setError] = useState('');
+
+  const load = () => listUsers().then(setUsers).catch(error => setError(error.message));
+  useEffect(() => { load(); }, []);
+
+  async function addUser() {
+    setError('');
+    try {
+      await createUser(draft);
+      setDraft({ login: '', password: '', role: 'user', avatar: '', about: '' });
+      await load();
+    } catch (error) { setError(error.message); }
+  }
+
+  async function patch(login, data) {
+    setError('');
+    try {
+      const saved = await updateUser(login, data);
+      setUsers(list => list.map(user => user.login === login ? saved : user));
+    } catch (error) { setError(error.message); }
+  }
+
+  async function remove(login) {
+    if (!confirm(`Удалить пользователя ${login}?`)) return;
+    setError('');
+    try {
+      await deleteUser(login);
+      setUsers(list => list.filter(user => user.login !== login));
+    } catch (error) { setError(error.message); }
+  }
+
+  return (
+    <div style={styles.modalOverlay} onMouseDown={onClose}>
+      <div style={{ ...styles.modal, width: 760 }} onMouseDown={e => e.stopPropagation()}>
+        <div style={styles.modalHead}>
+          <div>
+            <div style={styles.modalTitle}>Пользователи</div>
+            <div style={styles.modalSub}>Создание, права, профили</div>
+          </div>
+          <button style={styles.modalClose} onClick={onClose}>×</button>
+        </div>
+        <div style={styles.userCreate}>
+          <input style={styles.input} placeholder="login" value={draft.login} onChange={e => setDraft(v => ({ ...v, login: e.target.value }))} />
+          <input style={styles.input} placeholder="password" type="password" value={draft.password} onChange={e => setDraft(v => ({ ...v, password: e.target.value }))} />
+          <select style={styles.input} value={draft.role} onChange={e => setDraft(v => ({ ...v, role: e.target.value }))}>
+            <option value="user">user</option>
+            <option value="admin">admin</option>
+          </select>
+          <button style={styles.btnCreate} onClick={addUser}>Создать</button>
+        </div>
+        <div style={styles.userList}>
+          {users.map(item => (
+            <div key={item.login} style={styles.userRow}>
+              <div style={styles.userIdentity}>
+                {item.avatar ? <img src={item.avatar} alt="" style={styles.userAvatar} /> : <div style={styles.userAvatarFallback}>{item.login.slice(0, 1).toUpperCase()}</div>}
+                <div>
+                  <div style={styles.userLogin}>{item.login}</div>
+                  <div style={styles.userAbout}>{item.about || 'Профиль не заполнен'}</div>
+                </div>
+              </div>
+              <select style={styles.smallSelect} value={item.role || 'user'} onChange={e => patch(item.login, { role: e.target.value })} disabled={item.login === 'admin'}>
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+              <button style={styles.btnDelete} disabled={item.login === 'admin' || item.login === currentUser?.login} onClick={() => remove(item.login)}>Удалить</button>
+            </div>
+          ))}
+        </div>
+        {error && <div style={styles.error}>{error}</div>}
+      </div>
     </div>
   );
 }
@@ -168,6 +314,7 @@ const styles = {
     gap: 16,
     marginBottom: 28,
   },
+  headerActions: { display: 'flex', gap: 8, alignItems: 'center' },
   title: {
     fontSize: 30,
     fontWeight: 700,
@@ -203,6 +350,9 @@ const styles = {
     padding: '11px 14px',
     outline: 'none',
     minWidth: 0,
+    resize: 'vertical',
+    lineHeight: 1.35,
+    fontFamily: 'inherit',
   },
   btnCreate: {
     background: '#3b82f6',
@@ -298,6 +448,7 @@ const styles = {
   commentArea: {
     width: '100%',
     minHeight: 58,
+    height: 'auto',
     resize: 'vertical',
     background: '#111827',
     border: '1px solid #2d3458',
@@ -308,6 +459,25 @@ const styles = {
     lineHeight: 1.4,
     outline: 'none',
   },
+  modalOverlay: { position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(3,6,16,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  modal: { width: 520, maxWidth: '96vw', maxHeight: '90vh', overflowY: 'auto', background: '#171925', border: '1px solid #2d3458', borderRadius: 10, padding: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.55)' },
+  modalHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
+  modalTitle: { color: '#e2e8f0', fontSize: 20, fontWeight: 800 },
+  modalSub: { color: '#94a3b8', fontSize: 13, marginTop: 3 },
+  modalClose: { background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 26, cursor: 'pointer' },
+  avatarPreview: { width: 84, height: 84, objectFit: 'cover', borderRadius: 8, border: '1px solid #2d3458', marginBottom: 10 },
+  profileText: { width: '100%', boxSizing: 'border-box', marginTop: 10, marginBottom: 10, background: '#1e2030', border: '1px solid #2d3458', borderRadius: 8, color: '#e2e8f0', fontSize: 14, padding: 10, resize: 'vertical', fontFamily: 'inherit' },
+  passwordGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center', marginTop: 14 },
+  ok: { color: '#bbf7d0', background: '#12321f', border: '1px solid #166534', borderRadius: 8, padding: '9px 10px', marginTop: 12 },
+  userCreate: { display: 'grid', gridTemplateColumns: '1fr 1fr 110px auto', gap: 8, marginBottom: 12 },
+  userList: { display: 'flex', flexDirection: 'column', gap: 8 },
+  userRow: { display: 'grid', gridTemplateColumns: '1fr 100px auto', gap: 10, alignItems: 'center', background: '#111827', border: '1px solid #2d3458', borderRadius: 8, padding: 10 },
+  userIdentity: { display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 },
+  userAvatar: { width: 38, height: 38, objectFit: 'cover', borderRadius: 6 },
+  userAvatarFallback: { width: 38, height: 38, borderRadius: 6, background: '#293056', color: '#bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 },
+  userLogin: { color: '#e2e8f0', fontWeight: 700 },
+  userAbout: { color: '#94a3b8', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  smallSelect: { background: '#1e2030', border: '1px solid #2d3458', borderRadius: 6, color: '#e2e8f0', padding: '7px 8px' },
   commentMeta: {
     minHeight: 18,
     marginTop: 4,

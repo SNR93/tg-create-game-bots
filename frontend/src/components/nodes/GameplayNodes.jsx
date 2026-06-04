@@ -2,16 +2,16 @@ import React, { useEffect } from 'react';
 import { Handle, Position, useEdges, useNodeId, useUpdateNodeInternals } from '@xyflow/react';
 import { normalizeRandomConfig } from '../../randomUtils';
 
-function Frame({ children, selected, icon, title, data, input = true, output = true }) {
+function Frame({ children, selected, icon, title, data, input = true, output = true, wrapStyle }) {
   const nodeId = useNodeId();
   const edges = useEdges();
   const leftConnected  = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue-left');
   const rightConnected = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue');
   return (
-    <div style={{ ...s.wrap, border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55' }}>
+    <div style={{ ...s.wrap, border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55', ...wrapStyle }}>
       {input && <Handle type="target" position={Position.Left} id="in" style={s.hIn} />}
       <div style={s.header}><span>{icon}</span><span style={s.title}>{title}</span></div>
-      {children}
+      <div style={{ overflow: 'hidden' }}>{children}</div>
       {output && (
         <div style={s.cont}>
           <Handle
@@ -83,6 +83,19 @@ export function CheckpointNode({ data, selected }) {
   return <Frame selected={selected} icon="🚩" title={data.title || 'Чекпоинт'} data={data}><div style={s.body}>Сохранить прогресс</div></Frame>;
 }
 
+export function ResetProgressNode({ data, selected }) {
+  const preserveVars = data.preserveVars || [];
+  return (
+    <Frame selected={selected} icon="↺" title={data.title || 'Сброс прогресса'} data={data}>
+      <div style={s.body}>Очистить историю игрока</div>
+      <div style={s.row}>
+        <span style={s.key}>Сохранить переменных</span>
+        <span style={s.value}>{preserveVars.length}</span>
+      </div>
+    </Frame>
+  );
+}
+
 export function RelationNode({ data, selected }) {
   const entries = data.entries || [];
   return <Frame selected={selected} icon="♥" title={data.title || 'Отношения'} data={data}>
@@ -98,7 +111,7 @@ export function AchievementNode({ data, selected }) {
 export function AchievementsViewNode({ data, selected }) {
   return (
     <Frame selected={selected} icon="🏆" title={data.title || 'Достижения'} data={data}>
-      <div style={s.body}>{data.template || 'Достижения: {{unlocked}} / {{total}}'}</div>
+      <div style={s.body}>{data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}'}</div>
     </Frame>
   );
 }
@@ -207,6 +220,10 @@ export function PurchaseNode({ data, selected }) {
   return <Frame selected={selected} icon="⭐" title={data.title || 'Покупка'} data={data}><div style={s.body}>{data.productKey || 'Укажите товар'}</div></Frame>;
 }
 
+export function StarsShopNode({ data, selected }) {
+  return <Frame selected={selected} icon="🛍" title="Магазин Stars" data={data}><div style={s.body}>Открыть каталог товаров /starsshop</div></Frame>;
+}
+
 export function RandomNode({ id, data, selected }) {
   const { rangeMin, rangeMax, branches } = normalizeRandomConfig(data);
   const updateNodeInternals = useUpdateNodeInternals();
@@ -227,6 +244,77 @@ export function RandomNode({ id, data, selected }) {
         </div>
       ))}
       {branches.length === 0 && <div style={s.empty}>Нет вариантов</div>}
+    </Frame>
+  );
+}
+
+const CODEX_WRAP = { maxWidth: 240, width: 240 };
+
+export function UnlockCodexNode({ data, selected }) {
+  const entries = data.entries || [];
+  return (
+    <Frame selected={selected} icon="🔓" title={data.title || 'Разблокировать кодекс'} data={data} wrapStyle={CODEX_WRAP}>
+      {entries.length === 0 && <div style={s.empty}>Нет записей</div>}
+      {entries.map((e, i) => (
+        <div key={e.id || i} style={{ padding: '6px 14px', borderBottom: '1px solid #2d3250', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: '#38bdf8', fontSize: 12, fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            codex.{e.codexKey || '?'}
+          </span>
+          <span style={{ fontSize: 13 }}>{e.value !== false ? '🔓' : '🔒'}</span>
+        </div>
+      ))}
+    </Frame>
+  );
+}
+
+export function EditCodexNode({ data, selected }) {
+  const expanded = !!data.__expanded;
+  const entries = data.entries || [];
+  return (
+    <Frame selected={selected} icon="✎" title={data.title || 'Редактировать кодекс'} data={data} wrapStyle={CODEX_WRAP}>
+      {entries.length === 0 && <div style={s.empty}>Нет записей</div>}
+      {entries.map((e, i) => (
+        <CodexEntryRow key={e.id || i} codexKey={e.codexKey} text={e.text} expanded={expanded} />
+      ))}
+    </Frame>
+  );
+}
+
+function CodexEntryRow({ codexKey, text, expanded }) {
+  return (
+    <div style={{ padding: '7px 14px', borderBottom: '1px solid #2d3250' }}>
+      <div style={{ color: '#38bdf8', fontSize: 12, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        codex.{codexKey || '?'}
+      </div>
+      {text ? (
+        <div style={{
+          color: '#718096', fontSize: 11, marginTop: 3,
+          whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
+          overflow: 'hidden',
+          textOverflow: expanded ? 'clip' : 'ellipsis',
+          wordBreak: 'break-all',
+          overflowWrap: 'anywhere',
+        }}>
+          {expanded ? text : (text.length > 42 ? text.slice(0, 42) + '…' : text)}
+        </div>
+      ) : (
+        <div style={{ color: '#4a5568', fontSize: 11, marginTop: 2, fontStyle: 'italic' }}>нет текста</div>
+      )}
+    </div>
+  );
+}
+
+export function CodexNode({ data, selected }) {
+  const expanded = !!data.__expanded;
+  const entries = data.entries?.length > 0
+    ? data.entries
+    : data.codexKey ? [{ codexKey: data.codexKey, text: data.text }] : [];
+  return (
+    <Frame selected={selected} icon="К" title={data.title || 'Кодекс'} data={data} wrapStyle={CODEX_WRAP}>
+      {entries.length === 0 && <div style={s.empty}>Нет записей</div>}
+      {entries.map((e, i) => (
+        <CodexEntryRow key={e.id || i} codexKey={e.codexKey} text={e.text} expanded={expanded} />
+      ))}
     </Frame>
   );
 }

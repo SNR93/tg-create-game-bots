@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import CountedInput from './CountedInput';
 import { EDITOR_LIMITS, isSystemPlaceholderName } from '../../telegramLimits';
@@ -24,7 +24,7 @@ export function BoolButtons({ value, onChange }) {
   );
 }
 
-export default function VariableInspector({ data, onUpdate, botVariables = {} }) {
+export default function VariableInspector({ data, onUpdate, botVariables = {}, onRenameVariable }) {
   const entries = data.entries || [];
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -177,6 +177,7 @@ export default function VariableInspector({ data, onUpdate, botVariables = {} })
         {entries.map(e => (
           <EntryCard key={e.id} entry={e}
             onPatch={p => patchEntry(e.id, p)}
+            onRename={onRenameVariable}
             onDel={() => delEntry(e.id)} />
         ))}
       </Sect>
@@ -184,21 +185,33 @@ export default function VariableInspector({ data, onUpdate, botVariables = {} })
   );
 }
 
-function EntryCard({ entry, onPatch, onDel }) {
+function EntryCard({ entry, onPatch, onRename, onDel }) {
   const actions = entry.varType === 'number' ? ACTIONS_NUM : ACTIONS_BOOL;
   const action = actions.some(([key]) => key === entry.action) ? entry.action : 'set';
+  const focusedName = useRef(null);
+
+  function handleNameBlur() {
+    const oldName = String(focusedName.current || '').trim();
+    const newName = String(entry.varName || '').trim();
+    focusedName.current = null;
+    if (oldName && newName && oldName !== newName && onRename) {
+      onRename(oldName, newName);
+    }
+  }
+
   return (
     <div style={s.card}>
       <div style={s.cardHead}>
         <span style={s.cardName}>{entry.varName || '(без имени)'}</span>
         <span style={s.cardType}>{entry.varType === 'number' ? '123' : entry.varType === 'text' ? 'TXT' : 'T/F'}</span>
-
         <button style={s.delBtn} onClick={onDel}>✕</button>
       </div>
       <div style={s.cardBody}>
         <CountedInput style={{ ...s.inp, marginBottom: 5 }} value={entry.varName} maxLength={EDITOR_LIMITS.key}
           placeholder="Имя..."
           onChange={e => onPatch({ varName: e.target.value })}
+          onFocus={() => { focusedName.current = entry.varName; }}
+          onBlur={handleNameBlur}
           onKeyDown={e => e.stopPropagation()} />
         <select style={{ ...s.sel, width: '100%', marginBottom: 5 }} value={action}
           onChange={e => onPatch({ action: e.target.value })}>
@@ -242,6 +255,7 @@ const s = {
   cardHead: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: '#1e2030', borderBottom: '1px solid #3a3f55' },
   cardName: { flex: 1, fontSize: 12, fontWeight: 700, color: '#a78bfa' },
   cardType: { fontSize: 10, color: '#4a5568', background: '#2a2d3e', borderRadius: 4, padding: '1px 5px' },
+  renameBtn: { background: 'transparent', border: '1px solid #3a3f55', borderRadius: 5, color: '#38bdf8', cursor: 'pointer', fontSize: 12, padding: '1px 6px' },
   delBtn: { background: 'transparent', border: 'none', color: '#4a5568', cursor: 'pointer', fontSize: 12 },
   cardBody: { padding: '8px 10px' },
 };

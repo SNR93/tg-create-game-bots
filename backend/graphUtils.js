@@ -121,7 +121,7 @@ function cleanCommand(value) {
   return String(value || '').trim().replace(/^\/+/, '').toLowerCase();
 }
 
-const RESERVED_COMMANDS = new Set(['start', 'menu', 'settings', 'promo', 'shop', 'ref']);
+const RESERVED_COMMANDS = new Set(['start', 'menu', 'settings', 'promo', 'starsshop', 'ref']);
 
 function commandNames(node) {
   return [node.data.command, ...String(node.data.aliases || '').split(',')]

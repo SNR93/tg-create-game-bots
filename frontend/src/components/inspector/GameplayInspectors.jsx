@@ -257,7 +257,35 @@ export function FormulaInspector({ data, onUpdate, botVariables }) {
 }
 
 export function CheckpointInspector({ data, onUpdate }) {
-  return <Section title="Чекпоинт"><Input value={data.title || ''} placeholder="Название чекпоинта" onChange={event => onUpdate({ title: event.target.value })} /><div style={s.hint}>При прохождении этой ноды сохраняется точка прогресса игрока.</div></Section>;
+  return <Section title="Чекпоинт"><div style={s.hint}>При прохождении этой ноды сохраняется точка прогресса игрока.</div></Section>;
+}
+
+export function ResetProgressInspector({ data, onUpdate, botVariables }) {
+  const preserveVars = data.preserveVars || [];
+  const allVars = Object.keys(botVariables || {});
+  const patch = (index, value) => onUpdate({ preserveVars: preserveVars.map((name, itemIndex) => itemIndex === index ? value : name) });
+
+  return (
+    <Section title="Сброс прогресса">
+      <Input value={data.title || ''} placeholder="Сброс прогресса" onChange={event => onUpdate({ title: event.target.value })} />
+      <div style={{ ...s.fieldLabel, marginTop: 10 }}>Сохранить переменные после сброса:</div>
+      {preserveVars.length === 0 && <div style={s.hint}>Если список пустой, будут удалены все переменные игрока.</div>}
+      {preserveVars.map((name, index) => (
+        <div key={index} style={s.row}>
+          <select style={{ ...s.select, flex: 1 }} value={name || ''} onChange={event => patch(index, event.target.value)}>
+            <option value="">— переменная —</option>
+            {allVars.map(varName => <option key={varName} value={varName}>{varName}</option>)}
+          </select>
+          <Input value={name || ''} placeholder="имя_переменной" onChange={event => patch(index, event.target.value)} />
+          <button style={s.remove} onClick={() => onUpdate({ preserveVars: preserveVars.filter((_, itemIndex) => itemIndex !== index) })}>×</button>
+        </div>
+      ))}
+      <button style={s.add} onClick={() => onUpdate({ preserveVars: [...preserveVars, ''] })}>
+        + Сохранить переменную
+      </button>
+      <div style={s.hint}>Сброс очищает историю, текущую точку, инвентарь, отношения, достижения, промокоды и переменные, кроме перечисленных выше.</div>
+    </Section>
+  );
 }
 
 const REL_ACTION = { add: { icon: '💚', label: 'Увеличить' }, subtract: { icon: '❤️', label: 'Уменьшить' }, set: { icon: '🔢', label: 'Установить' } };
@@ -301,7 +329,11 @@ export function RelationInspector({ data, onUpdate }) {
   );
 }
 
-export function AchievementInspector({ data, onUpdate }) {
+export function AchievementInspector({ data, onUpdate, botVariables }) {
+  const rewardVars = data.rewardVars || [];
+  const allVars = Object.keys(botVariables || {});
+  const patchReward = (id, patch) => onUpdate({ rewardVars: rewardVars.map(entry => entry.id === id ? { ...entry, ...patch } : entry) });
+
   return (
     <Section title="Выдать достижение">
       <div style={s.fieldLabel}>Уникальный ключ достижения:</div>
@@ -314,6 +346,40 @@ export function AchievementInspector({ data, onUpdate }) {
         <input type="checkbox" checked={data.notify !== false} onChange={e => onUpdate({ notify: e.target.checked })} />
         <span>Показать уведомление игроку при получении</span>
       </label>
+      <div style={{ ...s.fieldLabel, marginTop: 12 }}>Награды при первом получении:</div>
+      {rewardVars.length === 0 && <div style={s.hint}>Награды необязательны. Они выдаются только один раз.</div>}
+      {rewardVars.map(entry => {
+        const varType = (entry.varName && botVariables?.[entry.varName]?.type) || entry.varType || 'number';
+        return (
+          <div key={entry.id} style={s.row}>
+            <select style={{ ...s.select, flex: 1 }} value={entry.varName || ''} onChange={e => {
+              const varName = e.target.value;
+              const newType = botVariables?.[varName]?.type || 'number';
+              patchReward(entry.id, { varName, varType: newType, value: newType === 'boolean' ? false : newType === 'number' ? 0 : '' });
+            }}>
+              <option value="">— переменная —</option>
+              {allVars.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <select style={{ ...s.select, width: 86, flex: 'none' }} value={entry.action || 'set'} onChange={e => patchReward(entry.id, { action: e.target.value })}>
+              <option value="set">=</option>
+              <option value="increment">+</option>
+              <option value="decrement">−</option>
+            </select>
+            {varType === 'boolean' ? (
+              <select style={{ ...s.select, width: 76, flex: 'none' }} value={String(entry.value === true || entry.value === 'true')} onChange={e => patchReward(entry.id, { value: e.target.value === 'true' })}>
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            ) : (
+              <Input type={varType === 'number' ? 'number' : 'text'} value={entry.value ?? ''} placeholder="значение" style={{ width: 110, flex: 'none' }} onChange={e => patchReward(entry.id, { value: varType === 'number' ? +e.target.value : e.target.value })} />
+            )}
+            <button style={s.remove} onClick={() => onUpdate({ rewardVars: rewardVars.filter(item => item.id !== entry.id) })}>×</button>
+          </div>
+        );
+      })}
+      <button style={s.add} onClick={() => onUpdate({ rewardVars: [...rewardVars, { id: uuidv4(), varName: '', varType: 'number', action: 'set', value: 0 }] })}>
+        + Добавить награду
+      </button>
     </Section>
   );
 }
@@ -322,8 +388,8 @@ export function AchievementsViewInspector({ data, onUpdate }) {
   return <Section title="Показать достижения">
     <PlaceholderField as="textarea" rows={4} value={data.template || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter formatting
       style={{ ...s.input, flex: 'none', width: '100%' }}
-      placeholder="Достижения: {{unlocked}} / {{total}}" onChange={event => onUpdate({ template: event.target.value })} />
-    <div style={s.hint}>{'{{unlocked}}'} — кол-во полученных, {'{{total}}'} — общее кол-во достижений на схеме.</div>
+      placeholder="Достижения: {{achievements.unlocked}} / {{achievements.total}}" onChange={event => onUpdate({ template: event.target.value })} />
+    <div style={s.hint}>{'{{achievements.unlocked}}'} — кол-во полученных, {'{{achievements.total}}'} — общее кол-во достижений на схеме.</div>
   </Section>;
 }
 
@@ -338,6 +404,10 @@ export function PromocodeInspector({ data, onUpdate, botVariables }) {
       <PlaceholderField as="textarea" rows={2} value={data.prompt || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter
         style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical' }}
         placeholder="Введите промокод:" onChange={e => onUpdate({ prompt: e.target.value })} />
+      <div style={{ ...s.fieldLabel, marginTop: 8 }}>Текст при неверном промокоде:</div>
+      <PlaceholderField as="textarea" rows={2} value={data.errorText || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter
+        style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical' }}
+        placeholder="Такого промокода не существует." onChange={e => onUpdate({ errorText: e.target.value })} />
 
       <div style={{ ...s.fieldLabel, marginTop: 12 }}>Переменные при успехе:</div>
       {rewardVars.length === 0 && <div style={s.hint}>Добавьте переменные, которые изменятся при успешном промокоде.</div>}
@@ -666,6 +736,202 @@ export function RandomInspector({ data, onUpdate }) {
   );
 }
 
+export function UnlockCodexInspector({ data, onUpdate, nodes = [] }) {
+  const [defaultId] = useState(() => uuidv4());
+  const entries = data.entries || [{ id: defaultId, codexKey: '', value: true }];
+
+  const codexKeys = useMemo(() => {
+    const keys = new Set();
+    for (const node of nodes) {
+      if (node.type !== 'codexNode') continue;
+      const nodeEntries = node.data?.entries?.length > 0
+        ? node.data.entries
+        : node.data?.codexKey ? [{ codexKey: node.data.codexKey }] : [];
+      for (const e of nodeEntries) {
+        if (e.codexKey) keys.add(String(e.codexKey).replace(/^codex\./i, ''));
+      }
+    }
+    return [...keys];
+  }, [nodes]);
+
+  const [openIdx, setOpenIdx] = useState(null);
+
+  function setEntries(list) { onUpdate({ entries: list }); }
+  function patch(id, p) { setEntries(entries.map(e => e.id === id ? { ...e, ...p } : e)); }
+
+  return (
+    <Section title="Разблокировать кодекс">
+      <div style={s.hint}>Управляет доступом к записи кодекса. true — открыть, false — закрыть.</div>
+      {entries.map((entry, idx) => (
+        <div key={entry.id} style={s.invCard}>
+          <div style={s.invCardHead}>
+            <span style={{ ...s.codexPrefix, flex: 0 }}>codex.</span>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <input
+                style={{ ...s.input, width: '100%', boxSizing: 'border-box', border: (entry.codexKey && !codexKeys.includes(entry.codexKey)) ? '1px solid #f6ad55' : '1px solid #3a3f55' }}
+                value={String(entry.codexKey || '').replace(/^codex\./i, '')}
+                placeholder="ключ_записи"
+                onFocus={() => setOpenIdx(idx)}
+                onBlur={() => setTimeout(() => setOpenIdx(null), 150)}
+                onChange={e => patch(entry.id, { codexKey: e.target.value.replace(/^codex\./i, '') })}
+              />
+              {openIdx === idx && codexKeys.length > 0 && (
+                <div style={sd.drop}>
+                  {codexKeys.filter(k => k.toLowerCase().includes((entry.codexKey || '').toLowerCase())).map(k => (
+                    <div key={k} style={sd.item}
+                      onMouseEnter={e => e.currentTarget.style.background = '#2a2d3e'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      onMouseDown={() => { patch(entry.id, { codexKey: k }); setOpenIdx(null); }}>
+                      codex.{k}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 4, marginLeft: 6 }}>
+              <button style={{ ...s.add, padding: '3px 10px', background: entry.value !== false ? '#166534' : '#2a2d3e', fontSize: 13 }}
+                onClick={() => patch(entry.id, { value: true })}>🔓</button>
+              <button style={{ ...s.add, padding: '3px 10px', background: entry.value === false ? '#7f1d1d' : '#2a2d3e', fontSize: 13 }}
+                onClick={() => patch(entry.id, { value: false })}>🔒</button>
+            </div>
+            {entries.length > 1 && (
+              <button style={s.remove} onClick={() => setEntries(entries.filter(e => e.id !== entry.id))}>×</button>
+            )}
+          </div>
+          {entry.codexKey && !codexKeys.includes(entry.codexKey) && (
+            <div style={{ padding: '4px 10px', color: '#f6ad55', fontSize: 11 }}>
+              Ключ «{entry.codexKey}» не найден среди нод Кодекс на схеме.
+            </div>
+          )}
+        </div>
+      ))}
+      <button style={s.add} onClick={() => setEntries([...entries, { id: uuidv4(), codexKey: '', value: true }])}>
+        + Добавить запись
+      </button>
+    </Section>
+  );
+}
+
+export function EditCodexInspector({ data, onUpdate, nodes = [] }) {
+  const [defaultId] = useState(() => uuidv4());
+  const entries = data.entries || [{ id: defaultId, codexKey: '', text: '' }];
+
+  const codexKeys = useMemo(() => {
+    const keys = new Set();
+    for (const node of nodes) {
+      if (node.type !== 'codexNode') continue;
+      const nodeEntries = node.data?.entries?.length > 0
+        ? node.data.entries
+        : node.data?.codexKey ? [{ codexKey: node.data.codexKey }] : [];
+      for (const e of nodeEntries) {
+        if (e.codexKey) keys.add(String(e.codexKey).replace(/^codex\./i, ''));
+      }
+    }
+    return [...keys];
+  }, [nodes]);
+
+  const [openIdx, setOpenIdx] = useState(null);
+
+  function setEntries(list) { onUpdate({ entries: list }); }
+  function patch(id, p) { setEntries(entries.map(e => e.id === id ? { ...e, ...p } : e)); }
+
+  return (
+    <Section title="Редактировать кодекс">
+      <div style={s.hint}>Изменяет текст записи для текущего игрока. Поддерживает {'{{плейсхолдеры}}'}.</div>
+      {entries.map((entry, idx) => (
+        <div key={entry.id} style={s.invCard}>
+          <div style={s.invCardHead}>
+            <span style={{ ...s.codexPrefix, flex: 0 }}>codex.</span>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <input
+                style={{ ...s.input, width: '100%', boxSizing: 'border-box', border: (entry.codexKey && !codexKeys.includes(entry.codexKey)) ? '1px solid #f6ad55' : '1px solid #3a3f55' }}
+                value={String(entry.codexKey || '').replace(/^codex\./i, '')}
+                placeholder="ключ_записи"
+                onFocus={() => setOpenIdx(idx)}
+                onBlur={() => setTimeout(() => setOpenIdx(null), 150)}
+                onChange={e => patch(entry.id, { codexKey: e.target.value.replace(/^codex\./i, '') })}
+              />
+              {openIdx === idx && codexKeys.length > 0 && (
+                <div style={sd.drop}>
+                  {codexKeys.filter(k => k.toLowerCase().includes((entry.codexKey || '').toLowerCase())).map(k => (
+                    <div key={k} style={sd.item}
+                      onMouseEnter={e => e.currentTarget.style.background = '#2a2d3e'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      onMouseDown={() => { patch(entry.id, { codexKey: k }); setOpenIdx(null); }}>
+                      codex.{k}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {entries.length > 1 && (
+              <button style={s.remove} onClick={() => setEntries(entries.filter(e => e.id !== entry.id))}>×</button>
+            )}
+          </div>
+          <div style={s.invCardBody}>
+            <PlaceholderField as="textarea" rows={4} value={entry.text || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter formatting
+              style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical', minHeight: 72 }}
+              placeholder="Новый текст записи." onChange={e => patch(entry.id, { text: e.target.value })} />
+            {entry.codexKey && !codexKeys.includes(entry.codexKey) && (
+              <div style={{ color: '#f6ad55', fontSize: 11 }}>Ключ «{entry.codexKey}» не найден среди нод Кодекс на схеме.</div>
+            )}
+          </div>
+        </div>
+      ))}
+      <button style={s.add} onClick={() => setEntries([...entries, { id: uuidv4(), codexKey: '', text: '' }])}>
+        + Добавить запись
+      </button>
+    </Section>
+  );
+}
+const sd = {
+  drop: { position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: '#1a1c2a', border: '1px solid #3a3f55', borderRadius: 5, marginTop: 2, maxHeight: 140, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.5)' },
+  item: { padding: '6px 10px', cursor: 'pointer', fontSize: 12, color: '#38bdf8', background: 'transparent' },
+};
+
+export function CodexInspector({ data, onUpdate }) {
+  const [defaultId] = useState(() => uuidv4());
+  const entries = data.entries?.length > 0
+    ? data.entries
+    : data.codexKey
+      ? [{ id: 'legacy', codexKey: String(data.codexKey).replace(/^codex\./i, ''), text: data.text || '', showOnUnlock: data.showOnUnlock !== false }]
+      : [{ id: defaultId, codexKey: '', text: '', showOnUnlock: true }];
+
+  function setEntries(list) {
+    onUpdate({ entries: list, codexKey: undefined, text: undefined, showOnUnlock: undefined });
+  }
+  function patchEntry(id, patch) {
+    setEntries(entries.map(e => e.id === id ? { ...e, ...patch } : e));
+  }
+
+  return (
+    <Section title="Кодекс">
+      <div style={s.hint}>Каждая запись открывается через переменную codex.&lt;ключ&gt; и доступна через {'{{codex.ключ}}'}.</div>
+      {entries.map((entry, idx) => (
+        <div key={entry.id} style={s.invCard}>
+          <div style={s.invCardHead}>
+            <span style={{ ...s.codexPrefix, flex: 0 }}>codex.</span>
+            <Input value={String(entry.codexKey || '').replace(/^codex\./i, '')} placeholder="ключ_записи"
+              style={{ flex: 1 }}
+              onChange={e => patchEntry(entry.id, { codexKey: e.target.value.replace(/^codex\./i, '') })} />
+            {entries.length > 1 && (
+              <button style={s.remove} onClick={() => setEntries(entries.filter(e => e.id !== entry.id))}>×</button>
+            )}
+          </div>
+          <div style={s.invCardBody}>
+            <PlaceholderField as="textarea" rows={4} value={entry.text || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter formatting
+              style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical', minHeight: 72 }}
+              placeholder="Текст записи кодекса." onChange={e => patchEntry(entry.id, { text: e.target.value })} />
+          </div>
+        </div>
+      ))}
+      <button style={s.add} onClick={() => setEntries([...entries, { id: uuidv4(), codexKey: '', text: '', showOnUnlock: true }])}>
+        + Добавить запись
+      </button>
+    </Section>
+  );
+}
+
 const s = {
   section: { padding: '14px 16px', borderBottom: '1px solid #222436' },
   title: { color: '#718096', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 9 },
@@ -712,9 +978,10 @@ const s = {
   varType: { color: '#4a5568', fontSize: 10, background: '#1a1c2a', borderRadius: 3, padding: '1px 5px' },
   varVal: { color: '#f6ad55', fontSize: 11, minWidth: 30, textAlign: 'right' },
   // Inventory card styles
-  invCard: { background: '#0f172a', border: '1px solid #2d3458', borderRadius: 8, marginBottom: 8, overflow: 'hidden' },
-  invCardHead: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: '#12131a', borderBottom: '1px solid #2d3458' },
+  invCard: { background: '#0f172a', border: '1px solid #2d3458', borderRadius: 8, marginBottom: 8, overflow: 'visible' },
+  invCardHead: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: '#12131a', borderBottom: '1px solid #2d3458', borderTopLeftRadius: 7, borderTopRightRadius: 7 },
   invCardBody: { padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 },
   invRow: { display: 'flex', alignItems: 'center', gap: 8 },
   invLabel: { color: '#718096', fontSize: 11, width: 46, flexShrink: 0 },
+  codexPrefix: { color: '#38bdf8', fontSize: 12, fontWeight: 700, flexShrink: 0 },
 };

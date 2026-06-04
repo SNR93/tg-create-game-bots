@@ -137,11 +137,19 @@ async function deleteRelation(botId, playerId, characterKey) {
 }
 
 async function unlockAchievement(botId, playerId, achievementKey, metadata = {}) {
-  await pool.query(`
+  const inserted = await pool.query(`
     INSERT INTO player_achievements (bot_id, telegram_user_id, achievement_key, metadata)
     VALUES ($1, $2, $3, $4::jsonb)
-    ON CONFLICT (bot_id, telegram_user_id, achievement_key) DO UPDATE SET metadata = EXCLUDED.metadata
+    ON CONFLICT (bot_id, telegram_user_id, achievement_key) DO NOTHING
+    RETURNING achievement_key
   `, [botId, String(playerId), achievementKey, JSON.stringify(metadata)]);
+  if (inserted.rows[0]) return true;
+  await pool.query(`
+    UPDATE player_achievements
+    SET metadata = $4::jsonb
+    WHERE bot_id = $1 AND telegram_user_id = $2 AND achievement_key = $3
+  `, [botId, String(playerId), achievementKey, JSON.stringify(metadata)]);
+  return false;
 }
 
 async function deleteAchievement(botId, playerId, achievementKey) {
@@ -157,14 +165,34 @@ async function setReferrer(botId, playerId, referrerId) {
 }
 
 async function applyRewards(client, botId, playerId, rewards = {}) {
-  for (const [itemKey, amount] of Object.entries(rewards.inventory || {})) {
-    await client.query(`
-      INSERT INTO player_inventory (bot_id, telegram_user_id, item_key, quantity)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (bot_id, telegram_user_id, item_key) DO UPDATE SET
-        quantity = GREATEST(0, player_inventory.quantity + EXCLUDED.quantity),
-        updated_at = NOW()
-    `, [botId, String(playerId), itemKey, +amount || 0]);
+  for (const [itemKey, spec] of Object.entries(rewards.inventory || {})) {
+    const { action, value } = (typeof spec === 'object' && spec !== null) ? spec : { action: 'add', value: spec };
+    const qty = Math.abs(Number(value) || 0);
+    if (action === 'set') {
+      if (qty <= 0) {
+        await client.query(`DELETE FROM player_inventory WHERE bot_id=$1 AND telegram_user_id=$2 AND item_key=$3`, [botId, String(playerId), itemKey]);
+      } else {
+        await client.query(`
+          INSERT INTO player_inventory (bot_id, telegram_user_id, item_key, quantity)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (bot_id, telegram_user_id, item_key) DO UPDATE SET quantity = $4, updated_at = NOW()
+        `, [botId, String(playerId), itemKey, qty]);
+      }
+    } else if (action === 'subtract') {
+      await client.query(`
+        INSERT INTO player_inventory (bot_id, telegram_user_id, item_key, quantity)
+        VALUES ($1, $2, $3, 0)
+        ON CONFLICT (bot_id, telegram_user_id, item_key) DO UPDATE SET
+          quantity = GREATEST(0, player_inventory.quantity - $4), updated_at = NOW()
+      `, [botId, String(playerId), itemKey, qty]);
+    } else {
+      await client.query(`
+        INSERT INTO player_inventory (bot_id, telegram_user_id, item_key, quantity)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (bot_id, telegram_user_id, item_key) DO UPDATE SET
+          quantity = GREATEST(0, player_inventory.quantity + EXCLUDED.quantity), updated_at = NOW()
+      `, [botId, String(playerId), itemKey, qty]);
+    }
   }
   for (const [name, reward] of Object.entries(rewards.variables || {})) {
     const config = typeof reward === 'object' && reward !== null ? reward : { value: reward };
@@ -228,16 +256,32 @@ async function setCheckpoint(botId, playerId, nodeId) {
   `, [botId, String(playerId), nodeId]);
 }
 
-async function resetPlayer(botId, playerId) {
+async function resetPlayer(botId, playerId, preserveVariables = {}) {
   const client = await pool.connect();
+  const normalizedPlayerId = String(playerId);
   try {
     await client.query('BEGIN');
-    await client.query(`DELETE FROM player_variables WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, String(playerId)]);
-    await client.query(`DELETE FROM player_inventory WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, String(playerId)]);
-    await client.query(`DELETE FROM player_relations WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, String(playerId)]);
-    await client.query(`DELETE FROM player_choices WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, String(playerId)]);
-    await client.query(`DELETE FROM player_achievements WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, String(playerId)]);
-    await client.query(`UPDATE players SET current_node_id = NULL, checkpoint_node_id = NULL, updated_at = NOW() WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, String(playerId)]);
+    await client.query(`
+      DELETE FROM scheduled_jobs
+      WHERE bot_id = $1
+        AND (payload ->> 'playerId' = $2 OR payload ->> 'chatId' = $2 OR (payload -> 'playerIds') ? $2)
+    `, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM analytics_events WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_promocodes WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_variables WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_inventory WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_relations WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_choices WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    await client.query(`DELETE FROM player_achievements WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
+    for (const [name, variable] of Object.entries(preserveVariables || {})) {
+      if (!String(name || '').trim()) continue;
+      const normalized = normalizeVariable(variable);
+      await client.query(`
+        INSERT INTO player_variables (bot_id, telegram_user_id, var_name, var_type, value, updated_at)
+        VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+      `, [botId, normalizedPlayerId, String(name).trim(), normalized.type, JSON.stringify(normalized.value)]);
+    }
+    await client.query(`UPDATE players SET current_node_id = NULL, checkpoint_node_id = NULL, updated_at = NOW() WHERE bot_id = $1 AND telegram_user_id = $2`, [botId, normalizedPlayerId]);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');

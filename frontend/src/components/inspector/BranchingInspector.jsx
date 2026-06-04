@@ -57,10 +57,6 @@ export default function BranchingInspector({ data, onUpdate, botVariables = {} }
 
   return (
     <div>
-      <Sect label="Название">
-        <CountedInput style={s.inp} value={data.title || ''} maxLength={EDITOR_LIMITS.title} placeholder="Ветвление"
-          onChange={e => onUpdate({ title: e.target.value })} onKeyDown={e => e.stopPropagation()} />
-      </Sect>
       <Sect label={`Ветки (${branches.length})`}>
         <div style={s.hint}>Проверяются сверху вниз. Срабатывает первая, у которой все условия выполнены. Ветка без условий — «иначе».</div>
         {branches.map((branch, i) => (

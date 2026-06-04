@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import {
   createBotPlayer,
   createBotBackup,
@@ -37,6 +38,79 @@ import {
 } from '../../api';
 import CountedInput from '../inspector/CountedInput';
 import { TELEGRAM_LIMITS } from '../../telegramLimits';
+import { getBot } from '../../api';
+
+function extractBotSuggestions(nodes) {
+  const variables = {};
+  const inventoryKeys = new Set();
+  for (const node of nodes || []) {
+    if (node.type === 'variableNode') {
+      for (const e of node.data?.entries || []) {
+        if (e.varName) variables[e.varName] = { type: e.varType || 'boolean' };
+      }
+    }
+    if (node.type === 'textInputNode' && node.data?.varName) {
+      variables[node.data.varName] = { type: node.data.varType || 'text' };
+    }
+    if (node.type === 'httpRequestNode' && node.data?.responseVar) {
+      variables[node.data.responseVar] = { type: 'text' };
+    }
+    if (node.type === 'globalVariableNode') {
+      for (const e of node.data?.entries || []) {
+        if (e.varName) variables[e.varName] = { type: e.varType || 'number' };
+      }
+    }
+    if (node.type === 'inventoryNode') {
+      for (const e of node.data?.entries || []) {
+        if (e.itemKey) inventoryKeys.add(e.itemKey);
+      }
+    }
+  }
+  return { variables, inventoryKeys: [...inventoryKeys] };
+}
+
+function useBotSuggestions(botId) {
+  const [suggestions, setSuggestions] = useState({ variables: {}, inventoryKeys: [] });
+  useEffect(() => {
+    if (!botId) return;
+    getBot(botId).then(bot => setSuggestions(extractBotSuggestions(bot?.nodes))).catch(() => {});
+  }, [botId]);
+  return suggestions;
+}
+
+function SuggestInput({ value, onChange, suggestions, placeholder, style, invalid }) {
+  const [open, setOpen] = useState(false);
+  const filtered = (suggestions || []).filter(s => s.toLowerCase().includes((value || '').toLowerCase())).slice(0, 12);
+  const border = invalid ? '1px solid #ef4444' : '1px solid #3a3f55';
+  return (
+    <div style={{ position: 'relative', flex: 1, minWidth: 80 }}>
+      <input
+        style={{ ...style, width: '100%', boxSizing: 'border-box', border }}
+        value={value || ''}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={e => onChange(e.target.value)}
+      />
+      {open && filtered.length > 0 && (
+        <div style={ss.drop}>
+          {filtered.map(s => (
+            <div key={s} style={ss.dropItem}
+              onMouseEnter={e => e.currentTarget.style.background = '#2a2d3e'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              onMouseDown={() => { onChange(s); setOpen(false); }}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+const ss = {
+  drop: { position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#1a1c2a', border: '1px solid #3a3f55', borderRadius: 5, marginTop: 2, maxHeight: 180, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.5)' },
+  dropItem: { padding: '6px 10px', cursor: 'pointer', fontSize: 12, color: '#a78bfa', background: 'transparent' },
+};
 
 function displayName(player) {
   return player.username ? `@${player.username}` : player.first_name || player.telegram_user_id;
@@ -46,6 +120,175 @@ function parseValue(type, value) {
   if (type === 'number') return Number(value) || 0;
   if (type === 'boolean') return value === true || value === 'true';
   return String(value ?? '');
+}
+
+function rewardsToEntries(rewards) {
+  if (!rewards) return [];
+  const entries = [];
+  for (const [key, spec] of Object.entries(rewards.inventory || {})) {
+    const { action, value } = (typeof spec === 'object' && spec !== null) ? spec : { action: 'add', value: spec };
+    entries.push({ id: uuidv4(), rtype: 'inventory', key, action: action || 'add', value: Math.abs(Number(value) || 0) });
+  }
+  for (const [varName, spec] of Object.entries(rewards.variables || {})) {
+    const varType = typeof spec === 'object' ? (spec.type || 'number') : 'number';
+    const val = typeof spec === 'object' ? spec.value : spec;
+    const action = typeof spec === 'object' ? (spec.action || 'set') : 'set';
+    entries.push({ id: uuidv4(), rtype: 'variable', key: varName, varType, action, value: val ?? '' });
+  }
+  return entries;
+}
+
+function entriesToRewards(entries) {
+  const inventory = {};
+  const variables = {};
+  for (const e of entries) {
+    if (!e.key?.trim()) continue;
+    if (e.rtype === 'inventory') {
+      inventory[e.key.trim()] = { action: e.action || 'add', value: Math.abs(Number(e.value) || 0) };
+    } else {
+      const v = e.varType === 'boolean' ? (e.value === true || e.value === 'true') : e.varType === 'number' ? Number(e.value) || 0 : String(e.value ?? '');
+      variables[e.key.trim()] = { type: e.varType || 'number', value: v, action: e.action || 'set' };
+    }
+  }
+  return { inventory, variables };
+}
+
+function RewardBuilder({ entries, onChange, variables = {}, inventoryKeys = [] }) {
+  const varNames = Object.keys(variables);
+
+  function patch(id, p) { onChange(entries.map(e => e.id === id ? { ...e, ...p } : e)); }
+  function add(rtype) { onChange([...entries, { id: uuidv4(), rtype, key: '', varType: 'number', action: rtype === 'inventory' ? 'add' : 'set', value: rtype === 'inventory' ? 1 : 0 }]); }
+  function remove(id) { onChange(entries.filter(e => e.id !== id)); }
+
+  function handleVarNameChange(id, name) {
+    const known = variables[name];
+    const varType = known?.type || entries.find(e => e.id === id)?.varType || 'number';
+    patch(id, { key: name, varType, value: varType === 'boolean' ? false : varType === 'number' ? 0 : '' });
+  }
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      {entries.map(e => {
+        const varType = e.varType || 'number';
+        const varKnown = e.rtype === 'variable' ? (e.key ? e.key in variables : true) : true;
+        const invKnown = e.rtype === 'inventory' ? (e.key ? inventoryKeys.includes(e.key) : true) : true;
+        return (
+          <div key={e.id} style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' }}>
+            <select style={s.select} value={e.rtype} onChange={ev => patch(e.id, { rtype: ev.target.value, key: '', value: ev.target.value === 'inventory' ? 1 : 0, action: ev.target.value === 'inventory' ? 'add' : 'set' })}>
+              <option value="inventory">Инвентарь</option>
+              <option value="variable">Переменная</option>
+            </select>
+
+            {e.rtype === 'inventory' ? (
+              <SuggestInput
+                value={e.key} suggestions={inventoryKeys} placeholder="ключ_предмета"
+                style={s.smallInput} invalid={!invKnown}
+                onChange={key => patch(e.id, { key })}
+              />
+            ) : (
+              <SuggestInput
+                value={e.key} suggestions={varNames} placeholder="имя_переменной"
+                style={s.smallInput} invalid={!varKnown}
+                onChange={name => handleVarNameChange(e.id, name)}
+              />
+            )}
+
+            {e.rtype === 'inventory' ? (
+              <select style={s.select} value={e.action || 'add'} onChange={ev => patch(e.id, { action: ev.target.value })}>
+                <option value="add">+</option>
+                <option value="subtract">−</option>
+                <option value="set">=</option>
+              </select>
+            ) : (
+              <select style={s.select} value={e.action || 'set'} onChange={ev => patch(e.id, { action: ev.target.value })}>
+                <option value="set">=</option>
+                <option value="increment">+</option>
+                <option value="decrement">−</option>
+              </select>
+            )}
+
+            {e.rtype === 'inventory' || varType !== 'boolean'
+              ? <input style={{ ...s.quantity, width: 76 }} type={e.rtype === 'inventory' || varType === 'number' ? 'number' : 'text'} value={e.value ?? ''} onChange={ev => patch(e.id, { value: (e.rtype === 'inventory' || varType === 'number') ? +ev.target.value : ev.target.value })} />
+              : <select style={s.select} value={String(e.value === true || e.value === 'true')} onChange={ev => patch(e.id, { value: ev.target.value === 'true' })}>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+            }
+            <button style={s.iconDanger} onClick={() => remove(e.id)}>×</button>
+          </div>
+        );
+      })}
+      <div style={{ display: 'flex', gap: 5 }}>
+        <button style={{ ...s.save, background: '#1e3a5f' }} onClick={() => add('inventory')}>+ Предмет</button>
+        <button style={{ ...s.save, background: '#2a1f5b' }} onClick={() => add('variable')}>+ Переменная</button>
+      </div>
+    </div>
+  );
+}
+
+function ProductsPanel({ botId, items, execute }) {
+  const { variables, inventoryKeys } = useBotSuggestions(botId);
+  const [pkey, setPkey] = useState('');
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [stars, setStars] = useState('');
+  const [entries, setEntries] = useState([]);
+
+  async function handleSubmit(ev) {
+    ev.preventDefault();
+    if (!pkey.trim() || !title.trim() || !stars) return;
+    await execute(() => saveBotProduct(botId, pkey.trim(), { title, description: desc, priceStars: +stars, rewards: entriesToRewards(entries) }));
+    setPkey(''); setTitle(''); setDesc(''); setStars(''); setEntries([]);
+  }
+
+  return (
+    <div>
+      <Section title="Товар Telegram Stars">
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+            <input style={{ ...s.smallInput, maxWidth: 120 }} placeholder="Ключ" value={pkey} onChange={e => setPkey(e.target.value)} />
+            <CountedInput style={s.smallInput} placeholder="Название" value={title} maxLength={TELEGRAM_LIMITS.invoiceTitle} onChange={e => setTitle(e.target.value)} />
+            <input style={s.quantity} type="number" min="1" placeholder="Stars" value={stars} onChange={e => setStars(e.target.value)} />
+            <button style={s.primary} type="submit">Сохранить</button>
+          </div>
+          <div style={{ color: '#718096', fontSize: 11, marginBottom: 4 }}>Награды:</div>
+          <RewardBuilder entries={entries} onChange={setEntries} variables={variables} inventoryKeys={inventoryKeys} />
+        </form>
+      </Section>
+      <SimpleRows items={items} title="Товары" render={item => `${item.title} · ${item.price_stars} Stars · ${item.product_key}`} onDelete={item => execute(() => deleteBotProduct(botId, item.product_key))} />
+    </div>
+  );
+}
+
+function PromocodesPanel({ botId, items, execute, reload }) {
+  const { variables, inventoryKeys } = useBotSuggestions(botId);
+  const [code, setCode] = useState('');
+  const [maxUses, setMaxUses] = useState('');
+  const [entries, setEntries] = useState([]);
+
+  async function handleSubmit(ev) {
+    ev.preventDefault();
+    if (!code.trim()) return;
+    await execute(() => saveBotPromocode(botId, code.trim(), { rewards: entriesToRewards(entries), maxUses: +maxUses || null }));
+    setCode(''); setMaxUses(''); setEntries([]);
+  }
+
+  return (
+    <div>
+      <Section title="Новый промокод">
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+            <input style={{ ...s.smallInput, maxWidth: 150 }} placeholder="КОД" value={code} onChange={e => setCode(e.target.value)} />
+            <input style={s.quantity} type="number" min="0" placeholder="Лимит" value={maxUses} onChange={e => setMaxUses(e.target.value)} />
+            <button style={s.primary} type="submit">Добавить</button>
+          </div>
+          <div style={{ color: '#718096', fontSize: 11, marginBottom: 4 }}>Награды:</div>
+          <RewardBuilder entries={entries} onChange={setEntries} variables={variables} inventoryKeys={inventoryKeys} />
+        </form>
+      </Section>
+      <SimpleRows items={items} title="Промокоды" render={item => `${item.code} · ${item.uses}/${item.max_uses ?? '∞'}`} onDelete={item => execute(() => deleteBotPromocode(botId, item.code))} />
+    </div>
+  );
 }
 
 export default function AdminPanel({ botId, onClose }) {
@@ -350,28 +593,11 @@ function ManagementPanel({ botId, tab, setError }) {
   </div>;
 
   if (tab === 'promocodes') return <div style={s.management}>
-    <Section title="Новый промокод">
-      <form style={s.createRow} onSubmit={event => { event.preventDefault(); execute(() => saveBotPromocode(botId, form.code, { rewards: JSON.parse(form.rewards || '{}'), maxUses: +form.maxUses || null })); }}>
-        <input style={s.smallInput} placeholder="CODE" value={form.code || ''} onChange={event => update('code', event.target.value)} />
-        <input style={s.smallInput} placeholder='Награды JSON: {"inventory":{"key":1}}' value={form.rewards || ''} onChange={event => update('rewards', event.target.value)} />
-        <input style={s.quantity} type="number" min="0" placeholder="Лимит" value={form.maxUses || ''} onChange={event => update('maxUses', event.target.value)} />
-        <button style={s.primary}>Добавить</button>
-      </form>
-    </Section>
-    <SimpleRows items={items} title="Промокоды" render={item => `${item.code} · ${item.uses}/${item.max_uses ?? '∞'}`} onDelete={item => execute(() => deleteBotPromocode(botId, item.code))} />
+    <PromocodesPanel botId={botId} items={items} execute={execute} />
   </div>;
 
   if (tab === 'products') return <div style={s.management}>
-    <Section title="Товар Telegram Stars">
-      <form style={s.createRow} onSubmit={event => { event.preventDefault(); execute(() => saveBotProduct(botId, form.key, { title: form.title, description: form.description, priceStars: +form.priceStars, rewards: JSON.parse(form.rewards || '{}') })); }}>
-        <input style={s.smallInput} placeholder="Ключ" value={form.key || ''} onChange={event => update('key', event.target.value)} />
-        <CountedInput style={s.smallInput} placeholder="Название" value={form.title || ''} maxLength={TELEGRAM_LIMITS.invoiceTitle} onChange={event => update('title', event.target.value)} />
-        <input style={s.quantity} type="number" min="1" placeholder="Stars" value={form.priceStars || ''} onChange={event => update('priceStars', event.target.value)} />
-        <input style={s.smallInput} placeholder="Награды JSON" value={form.rewards || ''} onChange={event => update('rewards', event.target.value)} />
-        <button style={s.primary}>Сохранить</button>
-      </form>
-    </Section>
-    <SimpleRows items={items} title="Товары" render={item => `${item.title} · ${item.price_stars} Stars · ${item.product_key}`} onDelete={item => execute(() => deleteBotProduct(botId, item.product_key))} />
+    <ProductsPanel botId={botId} items={items} execute={execute} />
   </div>;
 
   if (tab === 'versions') return <div style={s.management}>

@@ -20,7 +20,7 @@ import CommentNode      from '../components/nodes/CommentNode';
 import MediaNode        from '../components/nodes/MediaNode';
 import GroupNode        from '../components/nodes/GroupNode';
 import { CommandEntryNode, ContinueStoryNode } from '../components/nodes/CommandEntryNode';
-import { AchievementNode, AchievementsViewNode, BreakLoopNode, CheckpointNode, EditMessageNode, FormulaNode, GlobalVariableNode, HttpRequestNode, InventoryNode, InventoryViewNode, InvokeCommandNode, LocationNode, LoopNode, PollNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ReturnNode, StickerNode, SubscenarioNode, SubscriptionCheckNode, TextInputNode } from '../components/nodes/GameplayNodes';
+import { AchievementNode, AchievementsViewNode, BreakLoopNode, CheckpointNode, CodexNode, EditCodexNode, EditMessageNode, FormulaNode, GlobalVariableNode, HttpRequestNode, InventoryNode, InventoryViewNode, InvokeCommandNode, LocationNode, LoopNode, PollNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ResetProgressNode, ReturnNode, StarsShopNode, StickerNode, SubscenarioNode, SubscriptionCheckNode, TextInputNode, UnlockCodexNode } from '../components/nodes/GameplayNodes';
 import { NodeDebugContext, withNodeDebug } from '../components/nodes/DebuggableNode';
 import { SYSTEM_PLACEHOLDER_VARIABLES, isSystemPlaceholderName, validateScenarioText } from '../telegramLimits';
 
@@ -58,6 +58,7 @@ const nodeTypes = {
   formulaNode:       withNodeDebug(FormulaNode),
   randomNode:        withNodeDebug(RandomNode),
   checkpointNode:    withNodeDebug(CheckpointNode),
+  resetProgressNode: withNodeDebug(ResetProgressNode),
   menuNode:          withNodeDebug(CommandEntryNode),
   settingsNode:      withNodeDebug(CommandEntryNode),
   customCommandNode: withNodeDebug(CommandEntryNode),
@@ -69,6 +70,9 @@ const nodeTypes = {
   subscenarioNode:   withNodeDebug(SubscenarioNode),
   returnNode:        withNodeDebug(ReturnNode),
   purchaseNode:      withNodeDebug(PurchaseNode),
+  starsShopNode:     withNodeDebug(StarsShopNode),
+  editCodexNode:     withNodeDebug(EditCodexNode),
+  unlockCodexNode:   withNodeDebug(UnlockCodexNode),
   invokeCommandNode:      withNodeDebug(InvokeCommandNode),
   textInputNode:          withNodeDebug(TextInputNode),
   editMessageNode:        withNodeDebug(EditMessageNode),
@@ -80,6 +84,7 @@ const nodeTypes = {
   loopNode:               withNodeDebug(LoopNode),
   breakLoopNode:          withNodeDebug(BreakLoopNode),
   globalVariableNode:     withNodeDebug(GlobalVariableNode),
+  codexNode:              withNodeDebug(CodexNode),
   groupNode:         GroupNode,
 };
 
@@ -113,13 +118,14 @@ function makeDefaultData(type) {
     case 'formulaNode':     return { title: 'Формула', entries: [] };
     case 'randomNode':      return { title: 'Случайность', rangeMin: 1, rangeMax: 10, branches: [{ id: uuidv4(), label: 'Вариант 1', from: 1, to: 5 }, { id: uuidv4(), label: 'Вариант 2', from: 6, to: 10 }] };
     case 'checkpointNode':  return { title: 'Чекпоинт' };
+    case 'resetProgressNode': return { title: 'Сброс прогресса', preserveVars: [] };
     case 'menuNode':        return { title: 'Глобальное меню' };
     case 'settingsNode':    return { title: 'Настройки' };
     case 'customCommandNode': return { title: 'Команда', command: '', description: '', aliases: '', showInMenu: true };
     case 'continueStoryNode': return { title: 'Продолжить историю' };
     case 'relationNode':    return { title: 'Отношения', entries: [] };
     case 'achievementNode': return { title: 'Выдать достижение', achievementKey: '', imageUrl: '', notify: true };
-    case 'achievementsViewNode': return { title: 'Достижения', template: 'Достижения: {{unlocked}} / {{total}}' };
+    case 'achievementsViewNode': return { title: 'Достижения', template: 'Достижения: {{achievements.unlocked}} / {{achievements.total}}' };
     case 'promocodeNode':   return { title: 'Промокод', prompt: 'Введите промокод:' };
     case 'subscenarioNode': return { title: 'Подсценарий', targetNodeId: '' };
     case 'returnNode':      return { title: 'Возврат' };
@@ -135,6 +141,7 @@ function makeDefaultData(type) {
     case 'loopNode':              return { title: 'Цикл', maxIterations: 10 };
     case 'breakLoopNode':         return { title: 'Выход из цикла', targetLoopId: '' };
     case 'globalVariableNode':    return { title: 'Глобальные переменные', entries: [] };
+    case 'codexNode':             return { title: 'Кодекс', codexKey: '', text: '', showOnUnlock: true };
     default: return {};
   }
 }
@@ -152,11 +159,16 @@ function edgeDefaults(edge, nodes) {
 function normalizeEdge(edge, nodes) {
   const defaults = edgeDefaults(edge, nodes);
   const commentEdge = isCommentEdge(edge, nodes);
+  const mergedStyle = commentEdge
+    ? { ...edge.style, ...defaults.style }
+    : { ...defaults.style, ...edge.style };
+  delete mergedStyle.strokeDasharray; // strip selection-time dash — displayedEdges adds it when needed
   return {
     ...defaults,
     ...edge,
+    animated: false,  // always reset — displayedEdges adds it for selected nodes
+    style: mergedStyle,
     data: commentEdge ? { ...edge.data, ...defaults.data } : { ...defaults.data, ...edge.data },
-    style: commentEdge ? { ...edge.style, ...defaults.style } : { ...defaults.style, ...edge.style },
     markerEnd: commentEdge ? { ...edge.markerEnd, ...defaults.markerEnd } : { ...defaults.markerEnd, ...edge.markerEnd },
   };
 }
@@ -205,6 +217,31 @@ function removeDuplicateConnections(edges, nodes) {
 }
 
 function deepCopy(x) { return JSON.parse(JSON.stringify(x)); }
+
+const VARIABLE_FIELD_NAMES = new Set(['varName', 'responseVar', 'key', 'targetVar', 'sourceVar']);
+
+function replaceVariablePlaceholder(text, oldName, newName) {
+  return String(text).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, name) => (
+    name.trim() === oldName ? `{{${newName}}}` : match
+  ));
+}
+
+function renameVariableValue(value, oldName, newName, key = '') {
+  if (typeof value === 'string') {
+    if (VARIABLE_FIELD_NAMES.has(key) && value === oldName) return newName;
+    return replaceVariablePlaceholder(value, oldName, newName);
+  }
+  if (Array.isArray(value)) {
+    return value.map(item => typeof item === 'string' && item === oldName ? newName : renameVariableValue(item, oldName, newName));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
+      childKey,
+      renameVariableValue(childValue, oldName, newName, childKey),
+    ]));
+  }
+  return value;
+}
 
 function nodeSize(node) {
   return {
@@ -392,6 +429,26 @@ function extractVars(nodes) {
   return vars;
 }
 
+function codexVariableName(data = {}) {
+  const key = String(data.codexKey || data.key || '').trim().replace(/^codex\./i, '');
+  return key ? `codex.${key}` : '';
+}
+
+function extractCodexVars(nodes) {
+  const vars = {};
+  for (const node of (nodes || [])) {
+    if (node.type !== 'codexNode') continue;
+    const entries = node.data?.entries?.length > 0
+      ? node.data.entries
+      : node.data?.codexKey ? [{ codexKey: node.data.codexKey }] : [];
+    for (const e of entries) {
+      const key = String(e.codexKey || '').trim().replace(/^codex\./i, '');
+      if (key) vars[`codex.${key}`] = { type: 'boolean', defaultValue: false };
+    }
+  }
+  return vars;
+}
+
 function scenarioPathToNode(nodes, edges, targetNodeId) {
   if (!targetNodeId) return [];
   const outgoing = new Map();
@@ -449,7 +506,7 @@ function declareVariable(vars, name, type = 'text') {
 
 function varsBeforeNode(nodes, edges, targetNodeId) {
   const path = scenarioPathToNode(nodes, edges, targetNodeId);
-  const vars = {};
+  const vars = { ...extractCodexVars(nodes) };
   path.slice(0, -1).forEach(nodeId => {
     const node = nodes.find(item => item.id === nodeId);
     if (node?.type === 'variableNode') applyVariableEntries(vars, node.data.entries);
@@ -838,9 +895,22 @@ export default function EditorPage({ user }) {
       }
 
       if ([...adjustments.values()].some(d => Math.abs(d) > 0.5)) {
+        const preNodeMap = new Map((nodesRef.current || []).map(node => [node.id, node]));
+        const commentAdjustments = new Map();
+        for (const edge of edgesRef.current || []) {
+          const sourceNode = preNodeMap.get(edge.source);
+          const targetNode = preNodeMap.get(edge.target);
+          if (!edge.data?.isComment && sourceNode?.type !== 'commentNode' && targetNode?.type !== 'commentNode') continue;
+          const commentId = sourceNode?.type === 'commentNode' ? edge.source : targetNode?.type === 'commentNode' ? edge.target : null;
+          const anchorId = commentId === edge.source ? edge.target : edge.source;
+          const delta = adjustments.get(anchorId);
+          if (commentId && delta) commentAdjustments.set(commentId, delta);
+        }
         skipHistoryRef.current = true;
         setNodes(nds => nds.map(n => {
-          const d = adjustments.get(n.id);
+          const d = n.type === 'commentNode'
+            ? (commentAdjustments.get(n.id) ?? adjustments.get(n.id))
+            : adjustments.get(n.id);
           if (!d) return n;
           return { ...n, position: { x: n.position.x, y: n.position.y + d } };
         }));
@@ -955,6 +1025,25 @@ export default function EditorPage({ user }) {
 
   function updateNodeData(nodeId, patch) {
     setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+  }
+
+  function renameVariableEverywhere(oldName, newName) {
+    const from = String(oldName || '').trim();
+    const to = String(newName || '').trim();
+    if (!from || !to || from === to) return;
+    if (isSystemPlaceholderName(to)) {
+      alert('Это имя зарезервировано системным плейсхолдером.');
+      return;
+    }
+    const existing = Object.keys(extractVars(nodesRef.current)).filter(name => name !== from);
+    if (existing.some(name => name.toLowerCase() === to.toLowerCase())) {
+      alert(`Переменная «${to}» уже существует.`);
+      return;
+    }
+    setNodes(nds => nds.map(node => ({
+      ...node,
+      data: renameVariableValue(node.data || {}, from, to),
+    })));
   }
 
   function updateNode(nodeId, patch) {
@@ -1133,7 +1222,7 @@ export default function EditorPage({ user }) {
   if (!bot) return <div style={s.loading}>Загрузка...</div>;
 
   const inspectorNode = selectedNodeIds.length === 1 && inspectorNodeId ? (nodes.find(n => n.id === inspectorNodeId) ?? null) : null;
-  const allBotVariables = extractVars(nodes);
+  const allBotVariables = { ...extractVars(nodes), ...extractCodexVars(nodes) };
   const placeholderVariables = { ...SYSTEM_PLACEHOLDER_VARIABLES, ...allBotVariables };
   const botVariables = inspectorNode ? varsBeforeNode(nodes, edges, inspectorNode.id) : allBotVariables;
   const simulatorVariables = simulatorStartNodeId ? varsBeforeNode(nodes, edges, simulatorStartNodeId) : {};
@@ -1142,7 +1231,17 @@ export default function EditorPage({ user }) {
       ? { ...node, className: `${node.className || ''} node-search-highlight`.trim() }
       : { ...node, className: (node.className || '').replace(/\bnode-search-highlight\b/g, '').trim() || undefined })
     : nodes;
-  const displayedEdges = edges.map(edge => normalizeEdge(edge, nodes));
+  const selectedNodeIdSet = new Set(selectedNodeIds);
+  const displayedEdges = edges.map(edge => {
+    const normalized = normalizeEdge(edge, nodes);
+    const selectedLink = selectedNodeIdSet.has(normalized.source) || selectedNodeIdSet.has(normalized.target);
+    if (!selectedLink) return normalized;
+    return {
+      ...normalized,
+      animated: true,
+      style: { ...(normalized.style || {}), strokeDasharray: '6 4' },
+    };
+  });
   const openSimulator = (startNodeId = null) => {
     setSimulatorStartNodeId(startNodeId);
     setShowSimulator(true);
@@ -1283,6 +1382,7 @@ export default function EditorPage({ user }) {
               nodeTypes={nodeTypes}
               onInit={inst => { rfRef.current = inst; }}
               defaultEdgeOptions={EDGE_DEFAULTS}
+              proOptions={{ hideAttribution: true }}
               fitView deleteKeyCode={null}
               selectionKeyCode="Control" multiSelectionKeyCode="Control"
               selectionMode="partial"
@@ -1310,7 +1410,7 @@ export default function EditorPage({ user }) {
             <CompareView snapshot={compareSnap} currentNodes={nodes} currentEdges={edges} onClose={() => setCompareSnap(null)} />
           )}
           {inspectorNode && !compareSnap && (
-            <NodeInspector node={inspectorNode} onUpdate={updateNodeData} onUpdateNode={updateNode} onClose={() => setInspectorNodeId(null)} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={id} nodes={nodes} />
+            <NodeInspector node={inspectorNode} onUpdate={updateNodeData} onUpdateNode={updateNode} onRenameVariable={renameVariableEverywhere} onClose={() => setInspectorNodeId(null)} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={id} nodes={nodes} />
           )}
         </div>
       </div>

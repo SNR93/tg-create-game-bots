@@ -42,6 +42,62 @@ export async function getCurrentUser() {
   return data.user;
 }
 
+export async function getProfile() {
+  const response = await apiFetch(`${BASE}/profile`);
+  return readJson(response, 'Не удалось загрузить профиль');
+}
+
+export async function updateProfile(data) {
+  const response = await apiFetch(`${BASE}/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return readJson(response, 'Не удалось сохранить профиль');
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  const response = await apiFetch(`${BASE}/profile/password`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  return readJson(response, 'Не удалось изменить пароль');
+}
+
+export async function listUsers() {
+  const response = await apiFetch(`${BASE}/users`);
+  return readJson(response, 'Не удалось загрузить пользователей');
+}
+
+export async function createUser(data) {
+  const response = await apiFetch(`${BASE}/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return readJson(response, 'Не удалось создать пользователя');
+}
+
+export async function updateUser(login, data) {
+  const response = await apiFetch(`${BASE}/users/${encodeURIComponent(login)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return readJson(response, 'Не удалось сохранить пользователя');
+}
+
+export async function deleteUser(login) {
+  const response = await apiFetch(`${BASE}/users/${encodeURIComponent(login)}`, { method: 'DELETE' });
+  return readJson(response, 'Не удалось удалить пользователя');
+}
+
+export async function getUserProfile(login) {
+  const response = await apiFetch(`${BASE}/users/${encodeURIComponent(login)}/profile`);
+  return readJson(response, 'Не удалось загрузить профиль пользователя');
+}
+
 export async function listBots() {
   const r = await apiFetch(`${BASE}/bots`);
   return readJson(r, 'Не удалось загрузить список ботов');

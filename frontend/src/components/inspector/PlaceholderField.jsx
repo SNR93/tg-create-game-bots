@@ -124,17 +124,21 @@ export default function PlaceholderField({ as = 'input', value = '', onChange, s
     props.onScroll?.(event);
   }
 
+  const breakStyle = as === 'textarea' ? { wordBreak: 'break-all', overflowWrap: 'anywhere' } : {};
   const fieldStyle = {
     ...style,
+    ...breakStyle,
     position: 'relative',
     zIndex: 1,
     background: 'transparent',
     color: 'transparent',
+    WebkitTextFillColor: 'transparent',
     caretColor: '#e2e8f0',
   };
   const mirrorStyle = {
     ...style,
     ...s.mirror,
+    ...breakStyle,
     whiteSpace: as === 'textarea' ? 'pre-wrap' : 'pre',
   };
 

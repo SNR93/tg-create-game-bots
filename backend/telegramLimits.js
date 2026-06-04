@@ -25,11 +25,13 @@ const SYSTEM_PLACEHOLDER_NAMES = [
   'telegram.last_name',
   'telegram.full_name',
   'telegram.mention',
+  'achievements.unlocked',
+  'achievements.total',
 ];
 
 function isSystemPlaceholderName(name) {
   const normalized = String(name || '').trim().toLowerCase();
-  return SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
+  return normalized.startsWith('codex.') || SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
 }
 
 function formatMb(bytes) {

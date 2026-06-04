@@ -19,7 +19,13 @@ export default function CommandEntryInspector({ type, data, onUpdate }) {
           <label style={s.label}>Название блока</label>
           <CountedInput style={s.input} value={data.title || ''} maxLength={EDITOR_LIMITS.title} placeholder="Профиль игрока" onChange={event => onUpdate({ title: event.target.value })} />
           <label style={s.label}>Команда</label>
-          <div style={s.commandRow}><span style={s.slash}>/</span><CountedInput style={s.input} value={data.command || ''} maxLength={32} placeholder="profile" onChange={event => onUpdate({ command: cleanCommand(event.target.value) })} /></div>
+          <div style={s.commandRow}><span style={s.slash}>/</span><CountedInput style={s.input} value={data.command || ''} maxLength={32} placeholder="profile" onChange={event => {
+            const command = cleanCommand(event.target.value);
+            const previousAutoTitle = data.command ? `Команда /${data.command}` : 'Команда';
+            const patch = { command };
+            if (!String(data.title || '').trim() || data.title === previousAutoTitle) patch.title = command ? `Команда /${command}` : 'Команда';
+            onUpdate(patch);
+          }} /></div>
           <label style={s.label}>Описание в меню Telegram</label>
           <CountedInput style={s.input} value={data.description || ''} placeholder="Показать профиль" maxLength={TELEGRAM_LIMITS.commandDescription} onChange={event => onUpdate({ description: event.target.value })} />
           <label style={s.label}>Псевдонимы через запятую</label>

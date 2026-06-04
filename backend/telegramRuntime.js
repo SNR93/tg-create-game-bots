@@ -26,6 +26,14 @@ function getBotPath(botId)    { return path.join(BOTS_DIR, `${botId}.json`); }
 function getConfigPath(botId) { return path.join(TELEGRAM_DIR, `${botId}.json`); }
 function localMediaPath(url)  { return resolveLocalPath(url, MEDIA_DIR); }
 function readBot(botId)       { return JSON.parse(fs.readFileSync(getBotPath(botId), 'utf-8')); }
+function readBotSafe(botId) {
+  try {
+    const bot = readBot(botId);
+    return bot && Array.isArray(bot.nodes) && Array.isArray(bot.edges) ? bot : null;
+  } catch {
+    return null;
+  }
+}
 function delaySeconds(data = {}) {
   const amount = Math.max(0, +(data.amount ?? data.seconds ?? 3) || 0);
   const multipliers = { seconds: 1, minutes: 60, hours: 3600, days: 86400 };
@@ -61,6 +69,17 @@ function telegramTextPayload(text) {
   }
   html += escapeHtml(raw.slice(cursor));
   return { text: html, parse_mode: 'HTML' };
+}
+
+function parseRewardValue(rawValue, type) {
+  if (type === 'number') return Number.isFinite(Number(rawValue)) ? Number(rawValue) : 0;
+  if (type === 'boolean') return rawValue === true || rawValue === 'true';
+  return String(rawValue ?? '');
+}
+
+function codexVariableName(data = {}) {
+  const key = String(data.codexKey || data.key || '').trim().replace(/^codex\./i, '');
+  return key ? `codex.${key}` : '';
 }
 
 function readConfig(botId) {
@@ -119,6 +138,14 @@ class TelegramRuntime {
     return { running: this.running, tokenConfigured: true, token: this.token, botUsername: this.botInfo?.username || null, mode: this.mode, logs: this.logs };
   }
 
+  botForSession(session) {
+    const bot = session?.bot && Array.isArray(session.bot.nodes) && Array.isArray(session.bot.edges)
+      ? session.bot
+      : readBotSafe(this.botId);
+    if (session && bot && session.bot !== bot) session.bot = bot;
+    return bot;
+  }
+
   // ── Telegram API ───────────────────────────────────────────────────
 
   async request(method, payload = {}) {
@@ -162,16 +189,36 @@ class TelegramRuntime {
       const title = meta.title || achievementKey;
       dynamic[`achievement.${achievementKey}`] = { type: 'text', value: meta.imageUrl ? `${title}\n${meta.imageUrl}` : title };
     }
-    return { ...dynamic, ...(session.globalVars || {}), ...(session.vars || {}), ...(session.telegramVars || {}) };
+    const achievementKeys = new Set((session.bot?.nodes || [])
+      .filter(item => item.type === 'achievementNode' && item.data?.achievementKey)
+      .map(item => item.data.achievementKey));
+    dynamic['achievements.unlocked'] = { type: 'number', value: (session.achievementList || []).filter(key => achievementKeys.has(key)).length };
+    dynamic['achievements.total'] = { type: 'number', value: achievementKeys.size };
+    for (const node of session.bot?.nodes || []) {
+      if (node.type !== 'codexNode') continue;
+      const entries = node.data.entries?.length > 0
+        ? node.data.entries
+        : node.data.codexKey ? [{ codexKey: node.data.codexKey, text: node.data.text }] : [];
+      for (const entry of entries) {
+        const name = codexVariableName(entry);
+        if (!name) continue;
+        const varEntry = session.vars?.[name];
+        dynamic[name] = {
+          type: 'text',
+          value: varEntry?.type === 'text' ? String(varEntry.value || '') : (varEntry?.value ? String(entry.text || '') : ''),
+        };
+      }
+    }
+    return { ...(session.globalVars || {}), ...(session.vars || {}), ...(session.telegramVars || {}), ...dynamic };
   }
 
   // ── Commands ────────────────────────────────────────────────────────
 
   async refreshCommands() {
     if (!this.running) return;
-    const bot = readBot(this.botId);
+    const bot = readBotSafe(this.botId);
+    if (!bot) return;
     const commands = [{ command: 'start', description: bot.nodes.some(n => n.type === 'menuNode') ? 'Открыть главное меню' : 'Начать игру' }];
-    if (bot.nodes.some(n => n.type === 'menuNode')) commands.push({ command: 'menu', description: 'Открыть главное меню' });
     if (bot.nodes.some(n => n.type === 'settingsNode')) commands.push({ command: 'settings', description: 'Настройки' });
     const seen = new Set(commands.map(c => c.command));
     for (const node of bot.nodes.filter(n => n.type === 'customCommandNode' && n.data.showInMenu !== false)) {
@@ -186,9 +233,10 @@ class TelegramRuntime {
   // ── Session ────────────────────────────────────────────────────────
 
   async createSession(message, chatId) {
-    const draftBot = readBot(this.botId);
+    const draftBot = readBotSafe(this.botId);
     let player = await playerStore.ensurePlayer(this.botId, message?.from || { id: chatId }, chatId);
     const bot = await adminStore.selectScenarioForPlayer(this.botId, player.telegram_user_id) || draftBot;
+    if (!bot) throw new Error(`Bot ${this.botId} scenario is not available`);
     player = await playerStore.ensurePlayer(this.botId, message?.from || { id: chatId }, chatId);
     const storyRoot = findStoryRoot(bot);
     const globalVars = await playerStore.loadBotVariables(this.botId);
@@ -313,7 +361,8 @@ class TelegramRuntime {
       }
 
       const parsedCommand = incomingCommand;
-      const customCommandNode = parsedCommand && (session?.bot || readBot(this.botId)).nodes.find(n => n.type === 'customCommandNode' && commandNames(n).includes(parsedCommand.name));
+      const commandBot = this.botForSession(session);
+      const customCommandNode = parsedCommand && commandBot?.nodes.find(n => n.type === 'customCommandNode' && commandNames(n).includes(parsedCommand.name));
       if (customCommandNode) {
         if (!session) ({ session } = await this.createSession(message, chatId));
         setCommandArgs(session, parsedCommand.args);
@@ -335,7 +384,8 @@ class TelegramRuntime {
         const transient = !!session.waiting?.transient;
         session.waiting = null;
         if (waitingNodeId) {
-          const bot = session.bot || readBot(this.botId);
+          const bot = this.botForSession(session);
+          if (!bot) return;
           await this.execute(chatId, getNext(bot.edges, bot.nodes, waitingNodeId, 'continue') || getNext(bot.edges, bot.nodes, waitingNodeId), { transient });
         }
         await this.sessions.persist(chatId);
@@ -343,7 +393,7 @@ class TelegramRuntime {
       }
 
       if (text.startsWith('/promo ') && session) { await this.applyPromocode(chatId, session, text.slice(7)); await this.sessions.persist(chatId); return; }
-      if (text === '/shop' && session)  { await this.sendShop(chatId); return; }
+      if (text === '/starsshop' && session) { await this.sendShop(chatId); return; }
       if (text === '/ref'  && session)  { await this.request('sendMessage', { chat_id: chatId, text: `Ваша реферальная ссылка:\nhttps://t.me/${this.botInfo.username}?start=ref_${session.playerId}` }); return; }
 
       if (session?.waiting?.type === 'textInput') {
@@ -357,18 +407,20 @@ class TelegramRuntime {
         session.vars[varName] = { type: varType, value: val };
         await playerStore.saveVariables(this.botId, session.playerId, { [varName]: session.vars[varName] });
         await playerStore.recordEvent(this.botId, session.playerId, 'text_input', nodeId, { varName, value: val });
-        const bot = session.bot || readBot(this.botId);
+        const bot = this.botForSession(session);
+        if (!bot) return;
         await this.execute(chatId, getNext(bot.edges, bot.nodes, nodeId, 'continue') || getNext(bot.edges, bot.nodes, nodeId), { transient });
         await this.sessions.persist(chatId);
         return;
       }
 
       if (session?.waiting?.type === 'promocode') {
-        const bot = session.bot || readBot(this.botId);
+        const bot = this.botForSession(session);
+        if (!bot) return;
         const promoNode = bot.nodes.find(n => n.id === session.waiting.nodeId);
         const transient = !!session.waiting.transient;
         session.waiting = null;
-        const applied = await this.applyPromocode(chatId, session, text);
+        const applied = await this.applyPromocode(chatId, session, text, { errorText: promoNode?.data?.errorText });
         if (applied && promoNode) {
           if (!session.variables) session.variables = {};
           // New format: array of { varName, varValue }
@@ -406,7 +458,8 @@ class TelegramRuntime {
     if (chatId && session && callback.data?.startsWith('buy:')) { await this.sendInvoice(chatId, session, callback.data.slice(4)); return; }
     if (!chatId || session?.waiting?.type !== 'keyboard') return;
 
-    const bot = session.bot || readBot(this.botId);
+    const bot = this.botForSession(session);
+    if (!bot) return;
     const node = bot.nodes.find(n => n.id === session.waiting.nodeId);
     const buttonId = callback.data?.startsWith('button:') ? callback.data.slice(7) : '';
     const button = (node?.data.buttons || []).find(b => b.id === buttonId);
@@ -414,6 +467,7 @@ class TelegramRuntime {
 
     const transient = !!session.waiting.transient;
     session.waiting = null;
+    session.keyboardMessageId = callback.message?.message_id || session.keyboardMessageId || null;
     const edge = bot.edges.find(e => e.source === node.id && (e.sourceHandle === `left-${buttonId}` || e.sourceHandle === `right-${buttonId}`) && bot.nodes.some(t => t.id === e.target && t.type !== 'commentNode'));
     const label = this.interp(button.label, this.templateVars(session), chatId, node.id);
     this.addLog('info', `Чат ${chatId}: «${label}»`);
@@ -428,7 +482,8 @@ class TelegramRuntime {
     const session = await this.sessions.get(chatId);
     if (!session || session.waiting?.type !== 'keyboard' || session.waiting?.nodeId !== nodeId) return;
     session.waiting = null;
-    const bot = session.bot || readBot(this.botId);
+    const bot = this.botForSession(session);
+    if (!bot) return;
     this.addLog('info', `Чат ${chatId}: таймаут клавиатуры ${nodeId}`);
     await this.execute(chatId, getNext(bot.edges, bot.nodes, nodeId, 'timeout'), { transient: !!transient });
     await this.sessions.persist(chatId);
@@ -436,18 +491,19 @@ class TelegramRuntime {
 
   // ── Promo / Shop / Invoice ─────────────────────────────────────────
 
-  async applyPromocode(chatId, session, code) {
+  async applyPromocode(chatId, session, code, { errorText } = {}) {
     try {
       await playerStore.redeemPromocode(this.botId, session.playerId, code);
       const refreshed = await playerStore.loadPlayer(this.botId, session.playerId);
       session.vars = refreshed.variables;
       session.inventory = inventoryMap(refreshed.inventory);
       await playerStore.recordEvent(this.botId, session.playerId, 'promocode_redeemed', null, { code: String(code).trim().toUpperCase() });
-      await this.request('sendMessage', { chat_id: chatId, text: 'Промокод применен.' });
+      await this.request('sendMessage', { chat_id: chatId, text: 'Промокод применён.' });
       return true;
     } catch (e) {
       const used = e.message === 'PROMOCODE_ALREADY_USED';
-      await this.request('sendMessage', { chat_id: chatId, text: used ? 'Этот промокод уже использован.' : 'Промокод не найден или больше не активен.' });
+      const msg = used ? 'Этот промокод уже использован.' : (errorText || 'Такого промокода не существует.');
+      await this.request('sendMessage', { chat_id: chatId, text: msg });
       return false;
     }
   }
@@ -489,7 +545,8 @@ class TelegramRuntime {
   async runContentSequence(chatId, node, items, index = 0, transient = false, skipCurrentDelay = false) {
     const session = await this.sessions.get(chatId);
     if (!session) return;
-    const bot = session.bot || readBot(this.botId);
+    const bot = this.botForSession(session);
+    if (!bot) return;
     for (let itemIndex = index; itemIndex < items.length; itemIndex++) {
       const item = items[itemIndex];
       if (!skipCurrentDelay && (+item.delay || 0) > 0) {
@@ -514,7 +571,8 @@ class TelegramRuntime {
   async resumeContentSequence(chatId, sequence, transient = false) {
     const session = await this.sessions.get(chatId);
     if (!session) return;
-    const bot = session.bot || readBot(this.botId);
+    const bot = this.botForSession(session);
+    if (!bot) return;
     const node = bot.nodes.find(item => item.id === sequence.nodeId);
     if (!node) return;
     const items = node.type === 'messageChainNode' ? (node.data.messages || []) : (node.data.items || []);
@@ -528,8 +586,8 @@ class TelegramRuntime {
     if (!session) return;
     const transient = options.transient === true;
     if (!initialNodeId) { if (transient) this.restoreTransient(session); return; }
-    const bot = session.bot || readBot(this.botId);
-    if (!session.bot) session.bot = bot;
+    const bot = this.botForSession(session);
+    if (!bot) { this.addLog('error', `execute: bot ${this.botId} is not available`); return; }
     let nodeId = initialNodeId;
 
     for (let step = 0; nodeId && step < 300; step++) {
@@ -542,6 +600,8 @@ class TelegramRuntime {
       }
       await playerStore.recordEvent(this.botId, session.playerId, 'node_enter', node.id, { nodeType: node.type, transient });
       this.addLog('info', `Чат ${chatId}: ${node.type} ${node.data.nodeId || node.id.slice(0, 7)}`);
+
+      if (node.type !== 'keyboardNode') session.keyboardMessageId = null;
 
       switch (node.type) {
 
@@ -691,6 +751,27 @@ class TelegramRuntime {
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
 
+        case 'codexNode': {
+          const codexEntries = node.data.entries?.length > 0
+            ? node.data.entries
+            : node.data.codexKey
+              ? [{ codexKey: node.data.codexKey, text: node.data.text, showOnUnlock: node.data.showOnUnlock }]
+              : [];
+          session.vars ||= {};
+          for (const entry of codexEntries) {
+            const name = codexVariableName(entry);
+            if (!name) continue;
+            session.vars[name] = { type: 'boolean', value: true };
+            if (entry.text) {
+              const text = this.interp(entry.text, this.templateVars(session), chatId, node.id);
+              await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });
+            }
+          }
+          if (codexEntries.length > 0) await playerStore.saveVariables(this.botId, session.playerId, session.vars);
+          nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
+          break;
+        }
+
         case 'inventoryNode':
           session.inventory ||= {};
           for (const entry of node.data.entries || []) {
@@ -732,11 +813,25 @@ class TelegramRuntime {
 
         case 'achievementNode':
           if (node.data.achievementKey) {
-            await playerStore.unlockAchievement(this.botId, session.playerId, node.data.achievementKey, { title: node.data.title || '', imageUrl: node.data.imageUrl || '' });
+            const newlyUnlocked = await playerStore.unlockAchievement(this.botId, session.playerId, node.data.achievementKey, { title: node.data.title || '', imageUrl: node.data.imageUrl || '' });
             session.achievementList = session.achievementList || [];
             if (!session.achievementList.includes(node.data.achievementKey)) session.achievementList.push(node.data.achievementKey);
             session.achievementMeta = { ...(session.achievementMeta || {}), [node.data.achievementKey]: { title: node.data.title || '', imageUrl: node.data.imageUrl || '' } };
             await playerStore.recordEvent(this.botId, session.playerId, 'achievement_unlocked', node.id, { achievementKey: node.data.achievementKey });
+            if (newlyUnlocked) {
+              session.vars ||= {};
+              for (const entry of (node.data.rewardVars || [])) {
+                const varName = String(entry.varName || '').trim();
+                if (!varName) continue;
+                const type = entry.varType || session.vars?.[varName]?.type || 'number';
+                const current = session.vars?.[varName] || { type, value: type === 'number' ? 0 : (type === 'text' ? '' : false) };
+                let value = parseRewardValue(entry.value ?? entry.varValue, type);
+                if (entry.action === 'increment' && type === 'number') value = (+current.value || 0) + (+value || 0);
+                if (entry.action === 'decrement' && type === 'number') value = (+current.value || 0) - (+value || 0);
+                session.vars[varName] = { type, value };
+              }
+              await playerStore.saveVariables(this.botId, session.playerId, session.vars);
+            }
             if (node.data.notify !== false) {
               const text = `Достижение: ${this.interp(node.data.title || node.data.achievementKey, this.templateVars(session), chatId, node.id)}`;
               await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });
@@ -748,8 +843,17 @@ class TelegramRuntime {
         case 'achievementsViewNode': {
           const total = new Set((bot.nodes || []).filter(item => item.type === 'achievementNode' && item.data?.achievementKey).map(item => item.data.achievementKey)).size;
           const unlocked = (session.achievementList || []).filter(key => (bot.nodes || []).some(item => item.type === 'achievementNode' && item.data?.achievementKey === key)).length;
-          const template = node.data.template || 'Достижения: {{unlocked}} / {{total}}';
-          const text = this.interp(template.replace(/\{\{\s*unlocked\s*\}\}/g, String(unlocked)).replace(/\{\{\s*total\s*\}\}/g, String(total)), this.templateVars(session), chatId, node.id);
+          const template = node.data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}';
+          const text = this.interp(
+            template
+              .replace(/\{\{\s*achievements\.unlocked\s*\}\}/g, String(unlocked))
+              .replace(/\{\{\s*achievements\.total\s*\}\}/g, String(total))
+              .replace(/\{\{\s*unlocked\s*\}\}/g, String(unlocked))
+              .replace(/\{\{\s*total\s*\}\}/g, String(total)),
+            this.templateVars(session),
+            chatId,
+            node.id
+          );
           await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
@@ -784,6 +888,25 @@ class TelegramRuntime {
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
 
+        case 'resetProgressNode': {
+          const preserveNames = [...new Set((node.data.preserveVars || [])
+            .map(name => String(name || '').trim())
+            .filter(Boolean))];
+          const preserved = Object.fromEntries(preserveNames
+            .filter(name => session.vars?.[name])
+            .map(name => [name, session.vars[name]]));
+          await playerStore.resetPlayer(this.botId, session.playerId, preserved);
+          const refreshed = await playerStore.loadPlayer(this.botId, session.playerId);
+          session.vars = refreshed?.variables || {};
+          session.inventory = inventoryMap(refreshed?.inventory || []);
+          session.relations = relationMap(refreshed?.relations || []);
+          session.achievementList = (refreshed?.achievements || []).map(item => item.achievement_key);
+          session.achievementMeta = Object.fromEntries((refreshed?.achievements || []).map(item => [item.achievement_key, item.metadata || {}]));
+          await playerStore.recordEvent(this.botId, session.playerId, 'progress_reset', node.id, { preserveVars: preserveNames });
+          nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
+          break;
+        }
+
         case 'branchingNode': {
           const branch = (node.data.branches || []).find(b => (b.conditions || []).length === 0 || b.conditions.every(cond => branchMatches(cond, session)));
           nodeId = branch
@@ -817,7 +940,18 @@ class TelegramRuntime {
             }
             session.waiting = { type: 'keyboard', nodeId: node.id, transient, timeoutJobId };
           }
-          await this.request('sendMessage', { chat_id: chatId, text: '⁣', reply_markup: { inline_keyboard: keyboard } });
+          let sent = null;
+          const promptText = this.interp(node.data.promptText || 'Ваш выбор:', this.templateVars(session), chatId, node.id);
+          const keyboardPayload = { chat_id: chatId, text: promptText, reply_markup: { inline_keyboard: keyboard } };
+          if (session.keyboardMessageId) {
+            try {
+              sent = await this.request('editMessageText', { ...keyboardPayload, message_id: session.keyboardMessageId });
+            } catch (error) {
+              this.addLog('warn', `edit keyboard: ${error.message}`);
+            }
+          }
+          if (!sent) sent = await this.request('sendMessage', keyboardPayload);
+          if (sent?.message_id) session.keyboardMessageId = sent.message_id;
           if (hasCallback) return;
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
@@ -886,6 +1020,38 @@ class TelegramRuntime {
           if (await this.sendInvoice(chatId, session, node.data.productKey, node.id, transient)) return;
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
+
+        case 'starsShopNode':
+          await this.sendShop(chatId);
+          nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
+          break;
+
+        case 'unlockCodexNode': {
+          const unlockEntries = node.data.entries || [];
+          session.vars ||= {};
+          for (const entry of unlockEntries) {
+            const name = codexVariableName(entry);
+            if (!name) continue;
+            session.vars[name] = { type: 'boolean', value: entry.value !== false };
+          }
+          if (unlockEntries.length > 0) await playerStore.saveVariables(this.botId, session.playerId, session.vars);
+          nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
+          break;
+        }
+
+        case 'editCodexNode': {
+          const editEntries = node.data.entries || [];
+          session.vars ||= {};
+          for (const entry of editEntries) {
+            const name = codexVariableName(entry);
+            if (!name) continue;
+            const text = this.interp(entry.text || '', this.templateVars(session), chatId, node.id);
+            session.vars[name] = { type: 'text', value: text };
+          }
+          if (editEntries.length > 0) await playerStore.saveVariables(this.botId, session.playerId, session.vars);
+          nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
+          break;
+        }
 
         case 'groupNode':
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);

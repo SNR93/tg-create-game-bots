@@ -110,11 +110,6 @@ export default function KeyboardInspector({ data, onUpdate, botVariables = {}, p
 
   return (
     <div>
-      <Sect label="Название блока">
-        <PlaceholderField style={s.inp} value={data.title || ''} placeholder="Клавиатура"
-          maxLength={EDITOR_LIMITS.title} onChange={e => onUpdate({ title: e.target.value })} onKeyDown={e => e.stopPropagation()} />
-      </Sect>
-
       <Sect label="Таймаут (сек)">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="number" min="0" style={{ ...s.inp, width: 90 }} value={timeout}
@@ -122,6 +117,13 @@ export default function KeyboardInspector({ data, onUpdate, botVariables = {}, p
             onKeyDown={e => e.stopPropagation()} placeholder="0" />
           <span style={s.hint}>{timeout > 0 ? `Через ${timeout} сек → выход «Таймаут»` : 'Отключён'}</span>
         </div>
+      </Sect>
+
+      <Sect label="Текст перед кнопками">
+        <PlaceholderField style={s.inp} value={data.promptText ?? ''} maxLength={EDITOR_LIMITS.shortText}
+          placeholder="Ваш выбор:" onChange={e => onUpdate({ promptText: e.target.value })}
+          onKeyDown={e => e.stopPropagation()} />
+        <div style={s.hint}>Текст сообщения перед кнопками. По умолчанию: «Ваш выбор:»</div>
       </Sect>
 
       <Sect label={`Варианты (${buttons.length})`}>
@@ -294,11 +296,21 @@ function SuggestionInput({ value, source, suggestions, systemNames, onChange }) 
   const filtered = query
     ? keys.filter(key => key.toLowerCase().includes(query))
     : keys;
+  const normalizedValue = cleanQuery(value).toLowerCase();
+  const exists = normalizedValue ? keys.some(key => key.toLowerCase() === normalizedValue) : null;
 
   return (
     <div style={s.suggestWrap}>
       <input
-        style={{ ...s.inp, width: '100%', boxSizing: 'border-box' }}
+        style={{
+          ...s.inp,
+          width: '100%',
+          boxSizing: 'border-box',
+          ...(exists === null ? {} : {
+            borderColor: exists ? '#22c55e' : '#ef4444',
+            color: exists ? '#bbf7d0' : '#fecaca',
+          }),
+        }}
         value={value}
         placeholder={source === 'inventory' ? 'Item key' : source === 'relation' ? 'Character key' : source === 'achievement' ? 'Achievement key' : 'Variable name'}
         onFocus={() => setOpen(true)}

@@ -8,9 +8,9 @@ import CommentNode from '../nodes/CommentNode';
 import MediaNode from '../nodes/MediaNode';
 import GroupNode from '../nodes/GroupNode';
 import { CommandEntryNode, ContinueStoryNode } from '../nodes/CommandEntryNode';
-import { AchievementNode, CheckpointNode, FormulaNode, InventoryNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ReturnNode, SubscenarioNode } from '../nodes/GameplayNodes';
+import { AchievementNode, CheckpointNode, FormulaNode, InventoryNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ResetProgressNode, ReturnNode, SubscenarioNode } from '../nodes/GameplayNodes';
 
-const nodeTypes = { startNode: StartNode, applicationNode: ApplicationNode, messageChainNode: MessageChainNode, conditionNode: ConditionNode, commentNode: CommentNode, mediaNode: MediaNode, inventoryNode: InventoryNode, formulaNode: FormulaNode, randomNode: RandomNode, checkpointNode: CheckpointNode, relationNode: RelationNode, achievementNode: AchievementNode, promocodeNode: PromocodeNode, subscenarioNode: SubscenarioNode, returnNode: ReturnNode, purchaseNode: PurchaseNode, menuNode: CommandEntryNode, settingsNode: CommandEntryNode, customCommandNode: CommandEntryNode, continueStoryNode: ContinueStoryNode, groupNode: GroupNode };
+const nodeTypes = { startNode: StartNode, applicationNode: ApplicationNode, messageChainNode: MessageChainNode, conditionNode: ConditionNode, commentNode: CommentNode, mediaNode: MediaNode, inventoryNode: InventoryNode, formulaNode: FormulaNode, randomNode: RandomNode, checkpointNode: CheckpointNode, resetProgressNode: ResetProgressNode, relationNode: RelationNode, achievementNode: AchievementNode, promocodeNode: PromocodeNode, subscenarioNode: SubscenarioNode, returnNode: ReturnNode, purchaseNode: PurchaseNode, menuNode: CommandEntryNode, settingsNode: CommandEntryNode, customCommandNode: CommandEntryNode, continueStoryNode: ContinueStoryNode, groupNode: GroupNode };
 
 const EDGE_BASE = { animated: false, markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 } };
 

@@ -98,7 +98,12 @@ function evalButtonCondition(buttonOrCondition, session) {
   return conditions.every(cond => evalBranchCond({ source: cond.source, key: cond.key, operator: cond.operator, value: cond.value }, session));
 }
 
-const TYPE_LABEL = { menuNode:'Глобальное меню', settingsNode:'Настройки', customCommandNode:'Своя команда', continueStoryNode:'Продолжить историю', invokeCommandNode:'Вызвать команду', messageChainNode:'Цепочка сообщений', simpleMessageNode:'Сообщение', editMessageNode:'Изменить сообщение', pollNode:'Опрос или тест', stickerNode:'Стикер', locationNode:'Геолокация', mediaNode:'Медиа-подборка', inventoryNode:'Изменить инвентарь', inventoryViewNode:'Инвентарь', formulaNode:'Расчёт чисел', randomNode:'Случайный выбор', checkpointNode:'Контрольная точка', relationNode:'Отношения', achievementNode:'Выдать достижение', achievementsViewNode:'Достижения', promocodeNode:'Промокод', subscenarioNode:'Подсценарий', returnNode:'Возврат', purchaseNode:'Покупка Stars', delayNode:'Задержка', variableNode:'Переменные', textInputNode:'Ввод текста', subscriptionCheckNode:'Проверка подписки', httpRequestNode:'HTTP-запрос', loopNode:'Цикл', breakLoopNode:'Выход из цикла', globalVariableNode:'Глобальные переменные' };
+const TYPE_LABEL = { menuNode:'Глобальное меню', settingsNode:'Настройки', customCommandNode:'Своя команда', continueStoryNode:'Продолжить историю', invokeCommandNode:'Вызвать команду', messageChainNode:'Цепочка сообщений', simpleMessageNode:'Сообщение', editMessageNode:'Изменить сообщение', pollNode:'Опрос или тест', stickerNode:'Стикер', locationNode:'Геолокация', mediaNode:'Медиа-подборка', inventoryNode:'Изменить инвентарь', inventoryViewNode:'Инвентарь', formulaNode:'Расчёт чисел', randomNode:'Случайный выбор', checkpointNode:'Контрольная точка', resetProgressNode:'Сброс прогресса', relationNode:'Отношения', achievementNode:'Выдать достижение', achievementsViewNode:'Достижения', promocodeNode:'Промокод', subscenarioNode:'Подсценарий', returnNode:'Возврат', purchaseNode:'Покупка Stars', delayNode:'Задержка', variableNode:'Переменные', textInputNode:'Ввод текста', subscriptionCheckNode:'Проверка подписки', httpRequestNode:'HTTP-запрос', loopNode:'Цикл', breakLoopNode:'Выход из цикла', globalVariableNode:'Глобальные переменные', codexNode:'Кодекс' };
+
+function codexVariableName(data = {}) {
+  const key = String(data.codexKey || data.key || '').trim().replace(/^codex\./i, '');
+  return key ? `codex.${key}` : '';
+}
 
 export function useSimulator(nodes, edges, initVars) {
   const [chatMsgs, setChatMsgs]       = useState([]);
@@ -203,7 +208,19 @@ export function useSimulator(nodes, edges, initVars) {
         const title = meta.title || key;
         dynamic[`achievement.${key}`] = { type: 'text', value: meta.imageUrl ? `${title}\n${meta.imageUrl}` : title };
       });
-      return { ...dynamic, ...systemVars, ...globalVars, ...runtimeVarsRef.current };
+      const achievementKeys = new Set(nodes.filter(item => item.type === 'achievementNode' && item.data?.achievementKey).map(item => item.data.achievementKey));
+      dynamic['achievements.unlocked'] = { type: 'number', value: achievementList.filter(key => achievementKeys.has(key)).length };
+      dynamic['achievements.total'] = { type: 'number', value: achievementKeys.size };
+      for (const node of nodes || []) {
+        if (node.type !== 'codexNode') continue;
+        const name = codexVariableName(node.data);
+        if (!name) continue;
+        dynamic[name] = {
+          type: 'text',
+          value: runtimeVarsRef.current?.[name]?.value ? String(node.data?.text || '') : '',
+        };
+      }
+      return { ...systemVars, ...globalVars, ...runtimeVarsRef.current, ...dynamic };
     };
     const loopCounters = {};
     const callStack = [];
@@ -410,6 +427,22 @@ export function useSimulator(nodes, edges, initVars) {
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;
 
+        case 'resetProgressNode': {
+          const preserveNames = new Set((node.data.preserveVars || []).map(name => String(name || '').trim()).filter(Boolean));
+          setRuntimeVars(current => {
+            const next = Object.fromEntries(Object.entries(current).filter(([name]) => preserveNames.has(name)));
+            runtimeVarsRef.current = next;
+            return next;
+          });
+          Object.keys(inventory).forEach(key => delete inventory[key]);
+          Object.keys(relations).forEach(key => delete relations[key]);
+          achievementList.splice(0, achievementList.length);
+          Object.keys(achievementMeta).forEach(key => delete achievementMeta[key]);
+          pushLog({ kind: 'notification', nodeId, msg: `↺ Прогресс сброшен, сохранено переменных: ${preserveNames.size}` });
+          nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
+          break;
+        }
+
         case 'relationNode':
           for (const entry of node.data.entries || []) {
             if (!entry.characterKey) continue;
@@ -422,17 +455,40 @@ export function useSimulator(nodes, edges, initVars) {
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;
 
-        case 'achievementNode':
-          if (node.data.achievementKey && !achievementList.includes(node.data.achievementKey)) achievementList.push(node.data.achievementKey);
+        case 'achievementNode': {
+          const newlyUnlocked = node.data.achievementKey && !achievementList.includes(node.data.achievementKey);
+          if (newlyUnlocked) achievementList.push(node.data.achievementKey);
           if (node.data.achievementKey) achievementMeta[node.data.achievementKey] = { title: node.data.title || '', imageUrl: node.data.imageUrl || '' };
+          if (newlyUnlocked) {
+            setRuntimeVars(current => {
+              const next = { ...current };
+              for (const entry of (node.data.rewardVars || [])) {
+                const varName = String(entry.varName || '').trim();
+                if (!varName) continue;
+                const type = entry.varType || next[varName]?.type || 'number';
+                const currentValue = next[varName]?.value ?? (type === 'number' ? 0 : (type === 'text' ? '' : false));
+                let value = type === 'number' ? (+entry.value || 0) : (type === 'boolean' ? (entry.value === true || entry.value === 'true') : String(entry.value ?? ''));
+                if (entry.action === 'increment' && type === 'number') value = (+currentValue || 0) + (+value || 0);
+                if (entry.action === 'decrement' && type === 'number') value = (+currentValue || 0) - (+value || 0);
+                next[varName] = { type, value };
+              }
+              runtimeVarsRef.current = next;
+              return next;
+            });
+          }
           pushLog({ kind: 'notification', nodeId, msg: `🏆 ${interpolate(node.data.title || node.data.achievementKey || 'Достижение', templateVars())}` });
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;
+        }
 
         case 'achievementsViewNode': {
           const total = new Set(nodes.filter(item => item.type === 'achievementNode' && item.data?.achievementKey).map(item => item.data.achievementKey)).size;
           const unlocked = achievementList.filter(key => nodes.some(item => item.type === 'achievementNode' && item.data?.achievementKey === key)).length;
-          const text = (node.data.template || 'Достижения: {{unlocked}} / {{total}}').replace(/\{\{\s*unlocked\s*\}\}/g, String(unlocked)).replace(/\{\{\s*total\s*\}\}/g, String(total));
+          const text = (node.data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}')
+            .replace(/\{\{\s*achievements\.unlocked\s*\}\}/g, String(unlocked))
+            .replace(/\{\{\s*achievements\.total\s*\}\}/g, String(total))
+            .replace(/\{\{\s*unlocked\s*\}\}/g, String(unlocked))
+            .replace(/\{\{\s*total\s*\}\}/g, String(total));
           pushMsg({ from: 'bot', type: 'text', text: interpolate(text, templateVars()) });
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;
@@ -626,6 +682,20 @@ export function useSimulator(nodes, edges, initVars) {
             if (entry.action === 'decrement') value = (+current.value || 0) - (+entry.value || 1);
             globalVars[entry.varName] = { type, value };
             pushLog({ kind: 'var', nodeId, msg: `🌐 ${entry.varName} = ${value}` });
+          }
+          nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
+          break;
+        }
+
+        case 'codexNode': {
+          const name = codexVariableName(node.data);
+          if (name) {
+            setRuntimeVars(v => ({ ...v, [name]: { type: 'boolean', value: true } }));
+            runtimeVarsRef.current = { ...runtimeVarsRef.current, [name]: { type: 'boolean', value: true } };
+            pushLog({ kind: 'var', nodeId, msg: `${name} = true` });
+            if (node.data.showOnUnlock !== false && node.data.text) {
+              pushMsg({ from: 'bot', type: 'text', text: interpolate(node.data.text, templateVars()) });
+            }
           }
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;

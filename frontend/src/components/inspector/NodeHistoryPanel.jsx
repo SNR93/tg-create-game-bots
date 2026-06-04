@@ -63,9 +63,54 @@ function DiffView({ from, to }) {
   );
 }
 
-function HistoryEntry({ entry, currentData, onRestore, onDelete, onCommentSave }) {
+function stableString(value) {
+  if (value === undefined) return '—';
+  if (typeof value === 'string') return value;
+  try { return JSON.stringify(value, null, 2); }
+  catch { return String(value); }
+}
+
+function DataColumn({ title, data }) {
+  const rows = Object.entries(data || {}).filter(([key]) => key !== '__expanded' && key !== '__debugActive');
+  return (
+    <div style={ds.column}>
+      <div style={ds.columnTitle}>{title}</div>
+      {rows.length === 0 && <div style={ds.noChanges}>Нет данных</div>}
+      {rows.map(([key, value]) => (
+        <div key={key} style={ds.fieldRow}>
+          <div style={ds.fieldName}>{key}</div>
+          <pre style={ds.fieldValue}>{stableString(value)}</pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TwoColumnDiffView({ from, to }) {
+  const changes = diffData(from, to);
+  return (
+    <div style={ds.diffWrap}>
+      {changes.length === 0 ? <div style={ds.noChanges}>Изменений нет</div> : (
+        <div style={ds.changedList}>
+          {changes.map((c, i) => (
+            <div key={i} style={ds.diffRow}>
+              <div style={ds.diffPath}>{c.path}</div>
+              <div style={ds.diffLine}><span style={ds.was}>История: </span>{displayValue(c.from)}</div>
+              <div style={ds.diffLine}><span style={ds.became}>Текущая: </span>{displayValue(c.to)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={ds.columns}>
+        <DataColumn title="Текущая версия" data={to} />
+        <DataColumn title="Историческая версия" data={from} />
+      </div>
+    </div>
+  );
+}
+
+function HistoryEntry({ entry, currentData, onRestore, onDelete, onCommentSave, onRequestCompare }) {
   const [expanded, setExpanded] = useState(false);
-  const [comparing, setComparing] = useState(false);
   const [editComment, setEditComment] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -115,8 +160,8 @@ function HistoryEntry({ entry, currentData, onRestore, onDelete, onCommentSave }
 
           {/* Actions */}
           <div style={s.entryActions}>
-            <button style={s.actionBtn} onClick={() => setComparing(v => !v)}>
-              {comparing ? 'Скрыть сравнение' : '🔍 Сравнить с текущим'}
+            <button style={s.actionBtn} onClick={() => onRequestCompare && onRequestCompare(entry.data)}>
+              🔍 Сравнить с текущим
             </button>
             <button style={{ ...s.actionBtn, color: '#68d391' }} onClick={() => onRestore(entry.data)}>
               ↩ Восстановить
@@ -125,16 +170,13 @@ function HistoryEntry({ entry, currentData, onRestore, onDelete, onCommentSave }
               🗑 Удалить
             </button>
           </div>
-
-          {/* Diff */}
-          {comparing && <DiffView from={entry.data} to={currentData} />}
         </div>
       )}
     </div>
   );
 }
 
-export default function NodeHistoryPanel({ node, botId, currentData, onRestore, onClose }) {
+export default function NodeHistoryPanel({ node, botId, currentData, onRestore, onClose, onRequestCompare }) {
   const [entries, setEntries] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -220,6 +262,7 @@ export default function NodeHistoryPanel({ node, botId, currentData, onRestore, 
               onRestore={handleRestore}
               onDelete={handleDelete}
               onCommentSave={handleCommentSave}
+              onRequestCompare={onRequestCompare}
             />
           ))}
         </div>
@@ -292,7 +335,14 @@ const s = {
 };
 
 const ds = {
-  diffWrap: { background: '#0f172a', border: '1px solid #2d3458', borderRadius: 6, padding: '8px', marginTop: 4, maxHeight: 240, overflowY: 'auto' },
+  diffWrap: { background: '#0f172a', border: '1px solid #2d3458', borderRadius: 6, padding: '8px', marginTop: 4, maxHeight: 460, overflowY: 'auto' },
+  changedList: { borderBottom: '1px solid #1e293b', marginBottom: 8, paddingBottom: 4 },
+  columns: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
+  column: { minWidth: 0, background: '#0b1220', border: '1px solid #1e293b', borderRadius: 6, overflow: 'hidden' },
+  columnTitle: { color: '#cbd5e1', fontSize: 11, fontWeight: 700, padding: '7px 8px', background: '#111827', borderBottom: '1px solid #1e293b' },
+  fieldRow: { padding: '7px 8px', borderBottom: '1px solid #111827' },
+  fieldName: { color: '#38bdf8', fontSize: 11, fontWeight: 700, fontFamily: 'monospace', marginBottom: 3 },
+  fieldValue: { margin: 0, color: '#e2e8f0', fontSize: 11, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace' },
   noChanges: { color: '#718096', fontSize: 12, fontStyle: 'italic', textAlign: 'center', padding: 8 },
   diffRow: { marginBottom: 8, borderBottom: '1px solid #1e293b', paddingBottom: 6, fontSize: 11 },
   diffPath: { color: '#38bdf8', fontWeight: 700, fontFamily: 'monospace', marginBottom: 2 },

@@ -31,13 +31,15 @@ export const SYSTEM_PLACEHOLDERS = {
   'telegram.last_name': 'Фамилия пользователя из профиля Telegram.',
   'telegram.full_name': 'Имя и фамилия одной строкой.',
   'telegram.mention': 'Кликабельное упоминание/username или имя пользователя.',
+  'achievements.unlocked': 'Количество достижений, открытых игроком.',
+  'achievements.total': 'Общее количество достижений в сценарии.',
 };
 
 export const SYSTEM_PLACEHOLDER_NAMES = Object.keys(SYSTEM_PLACEHOLDERS);
 
 export const SYSTEM_PLACEHOLDER_VARIABLES = Object.fromEntries(
   SYSTEM_PLACEHOLDER_NAMES.map(name => [name, {
-    type: 'text',
+    type: name.startsWith('achievements.') ? 'number' : 'text',
     defaultValue: ({
       'telegram.id': '123456789',
       'telegram.chat_id': '123456789',
@@ -47,13 +49,15 @@ export const SYSTEM_PLACEHOLDER_VARIABLES = Object.fromEntries(
       'telegram.last_name': 'Фамилия',
       'telegram.full_name': 'Имя Фамилия',
       'telegram.mention': '@username',
-    })[name] || '',
+      'achievements.unlocked': 0,
+      'achievements.total': 0,
+    })[name] ?? '',
   }])
 );
 
 export function isSystemPlaceholderName(name) {
   const normalized = String(name || '').trim().toLowerCase();
-  return SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
+  return normalized.startsWith('codex.') || SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
 }
 
 export function formatFileSize(bytes) {

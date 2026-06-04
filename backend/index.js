@@ -21,6 +21,7 @@ const MEDIA_DIR = path.join(__dirname, 'data', 'media');
 const DATABASE_BACKUP_PATH = 'db/tgbot.sql';
 const MAX_NODE_HISTORY = 50;
 const TELEGRAM_BACKUP_SETTINGS_PATH = path.join(__dirname, 'data', 'telegram-backup.json');
+const USER_STORE_PATH = path.join(__dirname, 'data', 'users.json');
 const AUTH_COOKIE = 'tgbot_session';
 const AUTH_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const AUTH_SECRET = process.env.AUTH_SECRET || crypto.randomBytes(32).toString('hex');
@@ -85,10 +86,104 @@ function parseAuthUsers(value) {
   }).filter(Boolean));
 }
 
-const AUTH_USERS = parseAuthUsers(process.env.AUTH_USERS);
+const ENV_AUTH_USERS = parseAuthUsers(process.env.AUTH_USERS);
 
-if (!Object.keys(AUTH_USERS).length) {
-  console.warn('AUTH_USERS is empty. Panel login is disabled until AUTH_USERS is configured.');
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(String(password || ''), salt, 64).toString('hex');
+  return `scrypt:${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedHash) {
+  const parts = String(storedHash || '').split(':');
+  if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
+  const candidate = hashPassword(password, parts[1]);
+  return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(storedHash));
+}
+
+function readUsers() {
+  try {
+    const data = JSON.parse(fs.readFileSync(USER_STORE_PATH, 'utf-8'));
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeUsers(users) {
+  fs.mkdirSync(path.dirname(USER_STORE_PATH), { recursive: true });
+  fs.writeFileSync(USER_STORE_PATH, JSON.stringify(users, null, 2));
+}
+
+function userPublic(user) {
+  if (!user) return null;
+  return {
+    login: user.login,
+    role: user.role || 'user',
+    avatar: user.avatar || '',
+    about: user.about || '',
+    createdAt: user.createdAt || null,
+    updatedAt: user.updatedAt || null,
+  };
+}
+
+function ensureUserStore() {
+  const now = new Date().toISOString();
+  const users = readUsers();
+  let changed = false;
+  if (!users.admin) {
+    users.admin = {
+      login: 'admin',
+      role: 'admin',
+      passwordHash: hashPassword('changethispassword'),
+      avatar: '',
+      about: 'Default administrator account. Change this password after first login.',
+      createdAt: now,
+      updatedAt: now,
+    };
+    changed = true;
+  }
+  for (const login of Object.keys(ENV_AUTH_USERS)) {
+    if (!users[login]) {
+      users[login] = {
+        login,
+        role: login === 'SNR93' || login === 'admin' ? 'admin' : 'user',
+        passwordHash: '',
+        avatar: '',
+        about: '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      changed = true;
+    }
+  }
+  if (changed) writeUsers(users);
+  return users;
+}
+
+function getAuthUser(login) {
+  const users = ensureUserStore();
+  return users[login] || (ENV_AUTH_USERS[login] ? { login, role: login === 'SNR93' || login === 'admin' ? 'admin' : 'user', envPassword: ENV_AUTH_USERS[login] } : null);
+}
+
+function authUserExists(login) {
+  return !!getAuthUser(login);
+}
+
+function checkLoginPassword(login, password) {
+  const user = getAuthUser(login);
+  if (!user) return false;
+  if (user.envPassword !== undefined) return user.envPassword === password;
+  if (ENV_AUTH_USERS[login] === password) return true;
+  return verifyPassword(password, user.passwordHash);
+}
+
+function canManageUsers(login) {
+  const user = getAuthUser(login);
+  return login === 'SNR93' || login === 'admin' || user?.role === 'admin';
+}
+
+if (!Object.keys(ENV_AUTH_USERS).length) {
+  console.warn('AUTH_USERS is empty. File users store is active; default admin account is available.');
 }
 
 function readTelegramBackupSettings() {
@@ -386,16 +481,21 @@ function safeFileName(value) {
 function listBots() {
   const files = fs.readdirSync(BOTS_DIR).filter(f => f.endsWith('.json'));
   return files.map(f => {
-    const data = JSON.parse(fs.readFileSync(path.join(BOTS_DIR, f), 'utf-8'));
-    return {
-      id: data.id,
-      name: data.name,
-      createdAt: data.createdAt || data.updatedAt,
-      updatedAt: data.updatedAt,
-      createdBy: data.createdBy || 'unknown',
-      comment: data.comment || '',
-    };
-  }).sort((a, b) => new Date(b.createdAt || b.updatedAt) - new Date(a.createdAt || a.updatedAt));
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(BOTS_DIR, f), 'utf-8'));
+      if (!data?.id || !data?.name || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) return null;
+      return {
+        id: data.id,
+        name: data.name,
+        createdAt: data.createdAt || data.updatedAt,
+        updatedAt: data.updatedAt,
+        createdBy: data.createdBy || 'unknown',
+        comment: data.comment || '',
+      };
+    } catch {
+      return null;
+    }
+  }).filter(Boolean).sort((a, b) => new Date(b.createdAt || b.updatedAt) - new Date(a.createdAt || a.updatedAt));
 }
 
 function normalizeBotName(name) {
@@ -442,7 +542,7 @@ function verifyAuthToken(token) {
   if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
-    if (!data.login || !AUTH_USERS[data.login] || data.exp < Math.floor(Date.now() / 1000)) return null;
+    if (!data.login || !authUserExists(data.login) || data.exp < Math.floor(Date.now() / 1000)) return null;
     return data.login;
   } catch {
     return null;
@@ -477,12 +577,17 @@ function requireAuth(req, res, next) {
   const cookieToken = parseCookies(req.get('cookie'))[AUTH_COOKIE];
   const login = verifyAuthToken(bearerToken) || verifyAuthToken(cookieToken);
   if (!login) return res.status(401).json({ error: 'Требуется авторизация' });
-  req.user = { login };
+  req.user = userPublic(getAuthUser(login)) || { login };
   next();
 }
 
 function requireSnr93(req, res, next) {
   if (req.user?.login !== 'SNR93') return res.status(403).json({ error: 'Доступно только пользователю SNR93' });
+  next();
+}
+
+function requireUserManager(req, res, next) {
+  if (!canManageUsers(req.user?.login)) return res.status(403).json({ error: 'Недостаточно прав для управления пользователями' });
   next();
 }
 
@@ -568,12 +673,12 @@ app.get('/api/health', asyncRoute(async (req, res) => {
 app.post('/api/auth/login', (req, res) => {
   const login = String(req.body?.login || '').trim();
   const password = String(req.body?.password || '');
-  if (!AUTH_USERS[login] || AUTH_USERS[login] !== password) {
+  if (!checkLoginPassword(login, password)) {
     return res.status(401).json({ error: 'Неверный логин или пароль' });
   }
   const token = createAuthToken(login);
   setAuthCookie(req, res, token);
-  res.json({ token, user: { login } });
+  res.json({ token, user: userPublic(getAuthUser(login)) || { login } });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -583,6 +688,90 @@ app.post('/api/auth/logout', (req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
+});
+
+app.get('/api/profile', requireAuth, (req, res) => {
+  res.json(userPublic(getAuthUser(req.user.login)));
+});
+
+app.put('/api/profile', requireAuth, (req, res) => {
+  const users = ensureUserStore();
+  const user = users[req.user.login];
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  user.avatar = String(req.body?.avatar || '').trim().slice(0, 2048);
+  user.about = String(req.body?.about || '').trim().slice(0, 2000);
+  user.updatedAt = new Date().toISOString();
+  writeUsers(users);
+  res.json(userPublic(user));
+});
+
+app.put('/api/profile/password', requireAuth, (req, res) => {
+  const currentPassword = String(req.body?.currentPassword || '');
+  const nextPassword = String(req.body?.newPassword || '');
+  if (nextPassword.length < 6) return res.status(400).json({ error: 'Новый пароль должен быть не короче 6 символов' });
+  if (!checkLoginPassword(req.user.login, currentPassword)) return res.status(403).json({ error: 'Текущий пароль неверный' });
+  const users = ensureUserStore();
+  const user = users[req.user.login];
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  user.passwordHash = hashPassword(nextPassword);
+  user.updatedAt = new Date().toISOString();
+  writeUsers(users);
+  res.json({ ok: true });
+});
+
+app.get('/api/users', requireAuth, requireUserManager, (req, res) => {
+  const users = ensureUserStore();
+  res.json(Object.values(users).map(userPublic).sort((a, b) => a.login.localeCompare(b.login, 'ru')));
+});
+
+app.post('/api/users', requireAuth, requireUserManager, (req, res) => {
+  const login = String(req.body?.login || '').trim();
+  const password = String(req.body?.password || '');
+  if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(login)) return res.status(400).json({ error: 'Логин: 3-32 символа, латиница/цифры/._-' });
+  if (password.length < 6) return res.status(400).json({ error: 'Пароль должен быть не короче 6 символов' });
+  const users = ensureUserStore();
+  if (users[login] || ENV_AUTH_USERS[login]) return res.status(409).json({ error: 'Пользователь уже существует' });
+  const now = new Date().toISOString();
+  users[login] = {
+    login,
+    role: req.body?.role === 'admin' ? 'admin' : 'user',
+    passwordHash: hashPassword(password),
+    avatar: String(req.body?.avatar || '').trim().slice(0, 2048),
+    about: String(req.body?.about || '').trim().slice(0, 2000),
+    createdAt: now,
+    updatedAt: now,
+  };
+  writeUsers(users);
+  res.status(201).json(userPublic(users[login]));
+});
+
+app.get('/api/users/:login/profile', requireAuth, (req, res) => {
+  const user = getAuthUser(req.params.login);
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  res.json(userPublic(user));
+});
+
+app.put('/api/users/:login', requireAuth, requireUserManager, (req, res) => {
+  const users = ensureUserStore();
+  const user = users[req.params.login];
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  if (req.params.login === 'admin' && req.body?.role && req.body.role !== 'admin') return res.status(400).json({ error: 'admin должен оставаться администратором' });
+  user.role = req.body?.role === 'admin' ? 'admin' : 'user';
+  user.avatar = String(req.body?.avatar ?? user.avatar ?? '').trim().slice(0, 2048);
+  user.about = String(req.body?.about ?? user.about ?? '').trim().slice(0, 2000);
+  if (String(req.body?.password || '').length >= 6) user.passwordHash = hashPassword(String(req.body.password));
+  user.updatedAt = new Date().toISOString();
+  writeUsers(users);
+  res.json(userPublic(user));
+});
+
+app.delete('/api/users/:login', requireAuth, requireUserManager, (req, res) => {
+  if (req.params.login === 'admin' || req.params.login === req.user.login) return res.status(400).json({ error: 'Нельзя удалить этого пользователя' });
+  const users = ensureUserStore();
+  if (!users[req.params.login]) return res.status(404).json({ error: 'Пользователь не найден' });
+  delete users[req.params.login];
+  writeUsers(users);
+  res.json({ ok: true });
 });
 
 app.post('/api/telegram/webhook/:id/:secret', asyncRoute(async (req, res) => {
@@ -1015,6 +1204,8 @@ app.delete('/api/bots/:id', (req, res) => {
   if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
   telegramRuntime.remove(req.params.id);
   fs.unlinkSync(p);
+  const historyPath = getNodeHistoryPath(req.params.id);
+  if (fs.existsSync(historyPath)) fs.unlinkSync(historyPath);
   const botId = safeSegment(req.params.id);
   if (botId && botId === req.params.id) {
     const mediaPath = path.join(MEDIA_DIR, botId);
