@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { changePassword, createBot, createUser, deleteBot, deleteUser, getProfile, listBots, listUsers, updateBotComment, updateProfile, updateUser, uploadProfileAvatar } from '../api';
 
@@ -140,7 +140,10 @@ export default function BotsPage({ user, onLogout }) {
                 <button style={styles.btnDelete} onClick={e => handleDelete(e, bot.id)}>Удалить</button>
               )}
             </div>
-            <div style={styles.createdByCell}>{bot.createdBy || 'unknown'}</div>
+            <div style={{ ...styles.createdByCell, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <UserAvatar login={bot.createdBy} size={22} />
+              {bot.createdBy || 'unknown'}
+            </div>
             <div style={styles.commentCell}>
               <textarea
                 style={styles.commentArea}
@@ -163,6 +166,24 @@ export default function BotsPage({ user, onLogout }) {
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} onUser={profile => {}} />}
       {showUsers && <UsersModal currentUser={user} onClose={() => setShowUsers(false)} />}
     </div>
+  );
+}
+
+function UserAvatar({ login, size = 22 }) {
+  const safeName = (login || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const [src, setSrc] = useState(`/api/media/avatars/${safeName}.png`);
+  const [gone, setGone] = useState(false);
+  if (!login || gone) return null;
+  return (
+    <img
+      src={src}
+      alt=""
+      style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1px solid #2d3458' }}
+      onError={() => {
+        if (src.endsWith('.png')) setSrc(`/api/media/avatars/${safeName}.jpg`);
+        else setGone(true);
+      }}
+    />
   );
 }
 
