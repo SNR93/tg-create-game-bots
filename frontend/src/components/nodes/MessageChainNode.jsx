@@ -19,7 +19,6 @@ export default function MessageChainNode({ data, selected }) {
   return (
     <div style={{
       ...s.wrap,
-      maxWidth: expanded ? 'none' : 260,
       border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55',
       boxShadow: selected ? '0 0 0 2px rgba(79,209,197,0.25),0 0 20px rgba(79,209,197,0.12)' : 'none',
     }}>
@@ -34,7 +33,7 @@ export default function MessageChainNode({ data, selected }) {
         <div key={msg.id} style={s.row}>
           {msg.protected && <span style={s.lock} title="Защищённый контент">🔒</span>}
           <span style={s.mIcon}>{TYPE_ICON[msg.type] ?? '?'}</span>
-          <span style={{ ...s.mText, whiteSpace: expanded ? 'pre-wrap' : 'nowrap' }}>
+          <span style={{ ...s.mText, whiteSpace: expanded ? 'pre-wrap' : 'nowrap', wordBreak: expanded ? 'break-word' : 'normal' }}>
             {msg.type === 'text'
               ? (expanded ? (msg.text || <em style={{ color: '#4a5568' }}>пусто</em>) : (msg.text?.slice(0, 26) || <em style={{ color: '#4a5568' }}>пусто</em>))
               : (msg.fileName || msg.url?.split('/').pop() || msg.type)}

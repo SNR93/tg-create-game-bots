@@ -27,7 +27,7 @@ export default function SimpleMessageNode({ data, selected }) {
       <div style={s.preview}>
         {data.protected && <span style={s.lock} title="Защищённый контент">🔒</span>}
         <span style={s.typeIcon}>{ICONS[type]}</span>
-        <span style={{ ...s.text, whiteSpace: expanded ? 'pre-wrap' : 'nowrap' }}>
+        <span style={{ ...s.text, whiteSpace: expanded ? 'pre-wrap' : 'nowrap', wordBreak: expanded ? 'break-word' : 'normal' }}>
           {displayText || <em style={{ color: '#4a5568' }}>пусто</em>}
         </span>
       </div>
