@@ -994,6 +994,7 @@ function ManagementPanel({ botId, tab, setError }) {
   const [form, setForm] = useState({});
   const loaders = { globals: listBotGlobals, promocodes: listBotPromocodes, products: listBotProducts, analytics: getBotAnalytics, versions: listBotVersions, backups: listBotBackups, jobs: listBotJobs };
   const load = useCallback(async () => {
+    if (!loaders[tab]) return;
     try {
       setError('');
       const result = await loaders[tab](botId);

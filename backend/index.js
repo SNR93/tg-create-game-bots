@@ -1204,6 +1204,10 @@ app.delete('/api/bots/:id/admin/globals/:name', asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
+app.get('/api/bots/:id/my-role', asyncRoute(async (req, res) => {
+  res.json({ role: await resolveUserBotRole(req.params.id, req.user.login) });
+}));
+
 app.get('/api/bots/:id/admin/roles', asyncRoute(async (req, res) => {
   const roles = await adminStore.listRoles(req.params.id);
   const myRole = await resolveUserBotRole(req.params.id, req.user.login);

@@ -38,6 +38,7 @@ import Simulator    from '../components/simulator/Simulator';
 import {
   getBot, saveBot, downloadBot,
   getTelegramStatus, startTelegramBot, stopTelegramBot,
+  getBotMyRole,
 } from '../api';
 
 // ── Node type registry ──────────────────────────────────────────────
@@ -659,7 +660,10 @@ export default function EditorPage({ user }) {
   const initializedRef = useRef(false);
   const debounceRef    = useRef(null);
 
+  const [myRole, setMyRole] = useState('owner'); // optimistic — restrict after load
+
   useEffect(() => {
+    getBotMyRole(id).then(res => setMyRole(res.role || 'viewer')).catch(() => setMyRole('viewer'));
     getBot(id).then(data => {
       setBot(data);
       setBotName(data.name);
@@ -1211,18 +1215,22 @@ export default function EditorPage({ user }) {
     return true;
   }
 
+  const canEdit = myRole === 'editor' || myRole === 'owner';
+  const isOwner = myRole === 'owner';
+
   // ── Keyboard (e.code = layout-independent) ─────────────────────
   useEffect(() => {
     function onKey(e) {
       const inInput = e.target?.tagName === 'INPUT' || e.target?.tagName === 'TEXTAREA';
       if (e.ctrlKey || e.metaKey) {
+        if (!canEdit) { if (e.code === 'KeyS') e.preventDefault(); return; }
         if (!inInput && e.code === 'KeyC') { if (copySelectedNodes()) e.preventDefault(); return; }
         if (!inInput && e.code === 'KeyV') { if (pasteCopiedNodes()) e.preventDefault(); return; }
         if (e.code === 'KeyZ' && !e.shiftKey)                           { e.preventDefault(); undo();       return; }
         if (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey))     { e.preventDefault(); redo();       return; }
         if (e.code === 'KeyS')                                           { e.preventDefault(); handleSave(); return; }
       }
-      if (!inInput && (e.key === 'Delete' || e.key === 'Backspace')) handleDeleteSelected();
+      if (canEdit && !inInput && (e.key === 'Delete' || e.key === 'Backspace')) handleDeleteSelected();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1267,33 +1275,41 @@ export default function EditorPage({ user }) {
         <button style={s.backBtn} onClick={() => navigate('/')}>← Боты</button>
         <input style={s.nameInput} value={botName} onChange={e => setBotName(e.target.value)} onKeyDown={e => e.stopPropagation()} />
         <div style={s.actions}>
-          <button style={s.btnHelp} onClick={toggleNodesExpanded}>
+          {canEdit && <button style={s.btnHelp} onClick={toggleNodesExpanded}>
             {nodesExpanded ? 'Свернуть ноды' : 'Развернуть ноды'}
-          </button>
+          </button>}
           <button style={s.btnHelp} onClick={() => setShowLore(true)}>Лор</button>
           <button style={s.btnHelp} onClick={() => setShowSearch(v => !v)} title="Поиск нод (Ctrl+F)">Поиск 🔍</button>
           <button style={s.btnTest} onClick={() => openSimulator()}>🧪 Тест</button>
-          <button style={s.btnValidate} onClick={handleValidate}>Проверить сценарий на ошибки</button>
-          {telegramStatus.running ? (
-            <button style={s.btnTelegramStop} onClick={handleTelegramStop} disabled={telegramBusy}>
-              {telegramBusy ? '...' : '■ Остановить Telegram-бота'}
-            </button>
+          <button style={s.btnValidate} onClick={handleValidate}>Проверить</button>
+          {isOwner ? (
+            telegramStatus.running ? (
+              <button style={s.btnTelegramStop} onClick={handleTelegramStop} disabled={telegramBusy}>
+                {telegramBusy ? '...' : '■ Остановить Telegram-бота'}
+              </button>
+            ) : (
+              <button style={s.btnTelegramStart} onClick={openTelegramStart} disabled={telegramBusy}>
+                {telegramBusy ? '...' : '▶ Создать Telegram-бота'}
+              </button>
+            )
           ) : (
-            <button style={s.btnTelegramStart} onClick={openTelegramStart} disabled={telegramBusy}>
-              {telegramBusy ? '...' : '▶ Создать Telegram-бота'}
+            <button style={{ ...s.btnTelegramStart, opacity: 0.45, cursor: 'not-allowed' }}
+              onClick={() => alert('Управление Telegram-ботом доступно только владельцу проекта.')}>
+              Telegram
             </button>
           )}
-          <button style={s.btnTelegramLogs} onClick={() => setShowTelegramLogs(true)}>
+          {isOwner && <button style={s.btnTelegramLogs} onClick={() => setShowTelegramLogs(true)}>
             Логи Telegram
-          </button>
-          <button style={{ ...s.btnHistory, background: showHistory ? '#2a2d3e' : 'transparent' }} onClick={() => setShowHistory(v => !v)}>
+          </button>}
+          {canEdit && <button style={{ ...s.btnHistory, background: showHistory ? '#2a2d3e' : 'transparent' }} onClick={() => setShowHistory(v => !v)}>
             📋 История {snapshots.length > 0 && <span style={s.badge}>{snapshots.length}</span>}
-          </button>
-          <button style={s.btnSave} onClick={handleSave} disabled={saving}>
+          </button>}
+          {canEdit && <button style={s.btnSave} onClick={handleSave} disabled={saving}>
             {saving ? '...' : saved ? '✓ Готово' : 'Сохранить'}
-          </button>
+          </button>}
+          {!canEdit && <span style={{ fontSize: 11, color: '#64748b', alignSelf: 'center', padding: '0 6px' }}>👁 Только просмотр</span>}
           <div style={s.settingsWrap}>
-            <button style={s.btnSettings} title="Настройки" onClick={() => setShowSettings(value => !value)}>⚙</button>
+            {canEdit && <button style={s.btnSettings} title="Настройки" onClick={() => setShowSettings(value => !value)}>⚙</button>}
             {showSettings && (
               <div style={s.settingsMenu}>
                 <button style={s.settingsItem} onClick={() => { setShowAdmin(true); setShowSettings(false); }}>Админ</button>
@@ -1380,19 +1396,21 @@ export default function EditorPage({ user }) {
             <ReactFlow
               nodes={displayedNodes} edges={displayedEdges}
               onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onConnectStart={onConnectStart}
-              onConnectEnd={onConnectEnd}
+              onConnect={canEdit ? onConnect : undefined}
+              onConnectStart={canEdit ? onConnectStart : undefined}
+              onConnectEnd={canEdit ? onConnectEnd : undefined}
               isValidConnection={isValidConnection}
-              onEdgeDoubleClick={onEdgeDoubleClick}
+              onEdgeDoubleClick={canEdit ? onEdgeDoubleClick : undefined}
               onNodeClick={onNodeClick}
-              onNodeDragStop={onNodeDragStop}
-              onPaneContextMenu={onPaneContextMenu}
+              onNodeDragStop={canEdit ? onNodeDragStop : undefined}
+              onPaneContextMenu={canEdit ? onPaneContextMenu : undefined}
               nodeTypes={nodeTypes}
               onInit={inst => { rfRef.current = inst; }}
               defaultEdgeOptions={EDGE_DEFAULTS}
               proOptions={{ hideAttribution: true }}
               fitView deleteKeyCode={null}
+              nodesDraggable={canEdit}
+              nodesConnectable={canEdit}
               selectionKeyCode="Control" multiSelectionKeyCode="Control"
               selectionMode="partial"
               style={{ background: '#12131a' }}
