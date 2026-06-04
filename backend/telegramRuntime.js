@@ -184,8 +184,21 @@ class TelegramRuntime {
       dynamic[`inventory.my.${itemKey}`] = { type: 'text', value: `${itemKey} x${quantity}` };
       dynamic[`inventory.my.amount.${itemKey}`] = { type: 'number', value: quantity };
     }
+    const reputationStatusMap = {};
+    for (const node of session.bot?.nodes || []) {
+      if (node.type !== 'reputationStatusNode') continue;
+      for (const entry of node.data?.entries || []) {
+        const rKey = (entry.reputationType && entry.reputationTarget)
+          ? `${entry.reputationType}.${entry.reputationTarget}` : '';
+        if (!rKey || !entry.levels?.length) continue;
+        if (!reputationStatusMap[rKey]) reputationStatusMap[rKey] = entry.levels;
+      }
+    }
     for (const [relKey, value] of Object.entries(session.relations || {})) {
       dynamic[`reputation.${relKey}`] = { type: 'number', value };
+      const levels = reputationStatusMap[relKey] || [];
+      const match = levels.find(l => value >= (l.min ?? -Infinity) && value <= (l.max ?? Infinity));
+      dynamic[`reputation.status.${relKey}`] = { type: 'text', value: match?.label ?? '' };
     }
     for (const achievementKey of session.achievementList || []) {
       const meta = session.achievementMeta?.[achievementKey] || {};
@@ -808,10 +821,10 @@ class TelegramRuntime {
             await playerStore.setRelation(this.botId, session.playerId, rKey, value);
             if (entry.notify) {
               const target = entry.reputationTarget || entry.characterKey || rKey;
-              const rawText = entry.notifyText || 'Ваше отношение с "{{target}}" стало {{value}}.';
+              const rawText = entry.notifyText || 'Ваше отношение с "{{reputation.target}}" стало {{reputation.value}}.';
               const extraVars = {
-                target: { type: 'text', value: target },
-                value: { type: 'number', value },
+                'reputation.target': { type: 'text', value: target },
+                'reputation.value': { type: 'number', value },
               };
               const text = this.interp(rawText, { ...this.templateVars(session), ...extraVars }, chatId, node.id);
               await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });

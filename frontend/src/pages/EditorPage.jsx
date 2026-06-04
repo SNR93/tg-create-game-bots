@@ -20,7 +20,7 @@ import CommentNode      from '../components/nodes/CommentNode';
 import MediaNode        from '../components/nodes/MediaNode';
 import GroupNode        from '../components/nodes/GroupNode';
 import { CommandEntryNode, ContinueStoryNode } from '../components/nodes/CommandEntryNode';
-import { AchievementNode, AchievementsViewNode, BreakLoopNode, CheckpointNode, CodexNode, EditCodexNode, EditMessageNode, FormulaNode, GlobalVariableNode, HttpRequestNode, InventoryNode, InventoryViewNode, InvokeCommandNode, LocationNode, LoopNode, PollNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ResetProgressNode, ReturnNode, StarsShopNode, StickerNode, SubscenarioNode, SubscriptionCheckNode, TextInputNode, UnlockCodexNode } from '../components/nodes/GameplayNodes';
+import { AchievementNode, AchievementsViewNode, BreakLoopNode, CheckpointNode, CodexNode, EditCodexNode, EditMessageNode, FormulaNode, GlobalVariableNode, HttpRequestNode, InventoryNode, InventoryViewNode, InvokeCommandNode, LocationNode, LoopNode, PollNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ReputationStatusNode, ResetProgressNode, ReturnNode, StarsShopNode, StickerNode, SubscenarioNode, SubscriptionCheckNode, TextInputNode, UnlockCodexNode } from '../components/nodes/GameplayNodes';
 import { NodeDebugContext, withNodeDebug } from '../components/nodes/DebuggableNode';
 import { SYSTEM_PLACEHOLDER_VARIABLES, isSystemPlaceholderName, validateScenarioText } from '../telegramLimits';
 
@@ -86,6 +86,7 @@ const nodeTypes = {
   breakLoopNode:          withNodeDebug(BreakLoopNode),
   globalVariableNode:     withNodeDebug(GlobalVariableNode),
   codexNode:              withNodeDebug(CodexNode),
+  reputationStatusNode:  withNodeDebug(ReputationStatusNode),
   groupNode:         GroupNode,
 };
 

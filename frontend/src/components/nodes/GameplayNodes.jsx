@@ -98,10 +98,47 @@ export function ResetProgressNode({ data, selected }) {
 
 export function RelationNode({ data, selected }) {
   const entries = data.entries || [];
-  return <Frame selected={selected} icon="♥" title={data.title || 'Отношения'} data={data}>
+  return <Frame selected={selected} icon="♥" title={data.title || 'Репутация'} data={data}>
     {entries.length === 0 && <div style={s.empty}>Нет изменений</div>}
-    {entries.map(entry => <div key={entry.id} style={s.row}><span style={s.key}>{entry.characterKey || '?'}</span><span style={s.value}>{entry.action || 'add'} {entry.value ?? 1}</span></div>)}
+    {entries.map(entry => {
+      const key = (entry.reputationType && entry.reputationTarget)
+        ? `${entry.reputationType}.${entry.reputationTarget}`
+        : (entry.characterKey || '?');
+      return <div key={entry.id} style={s.row}>
+        <span style={s.key}>{key}</span>
+        <span style={s.value}>{entry.action || 'add'} {entry.value ?? 1}</span>
+      </div>;
+    })}
   </Frame>;
+}
+
+export function ReputationStatusNode({ data, selected }) {
+  const entries = data.entries || [];
+  return (
+    <Frame selected={selected} icon="★" title={data.title || 'Уровни репутации'} data={data} input={false} output={false}>
+      {entries.length === 0 && <div style={s.empty}>Нет определений</div>}
+      {entries.map(entry => {
+        const key = (entry.reputationType && entry.reputationTarget)
+          ? `${entry.reputationType}.${entry.reputationTarget}`
+          : '?';
+        const levels = entry.levels || [];
+        return (
+          <div key={entry.id}>
+            <div style={{ ...s.row, background: '#1a1c2a' }}>
+              <span style={{ ...s.key, color: '#38bdf8', fontWeight: 600 }}>reputation.status.{key}</span>
+              <span style={s.value}>{levels.length} ур.</span>
+            </div>
+            {levels.map(level => (
+              <div key={level.id} style={{ ...s.row, paddingLeft: 22 }}>
+                <span style={s.key}>{level.label || '—'}</span>
+                <span style={s.value}>{level.min}..{level.max}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </Frame>
+  );
 }
 
 export function AchievementNode({ data, selected }) {

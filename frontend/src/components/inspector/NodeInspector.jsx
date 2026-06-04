@@ -14,7 +14,7 @@ import GroupInspector from './GroupInspector';
 import NodeHelp from './NodeHelp';
 import { PlaceholderProvider } from './PlaceholderField';
 import { getNodeMeta } from '../nodes/nodeCatalog';
-import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CheckpointInspector, CodexInspector, EditCodexInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, ResetProgressInspector, ReturnInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector, UnlockCodexInspector } from './GameplayInspectors';
+import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CheckpointInspector, CodexInspector, EditCodexInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, ReputationStatusInspector, ResetProgressInspector, ReturnInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector, UnlockCodexInspector } from './GameplayInspectors';
 import NodeHistoryPanel from './NodeHistoryPanel';
 
 function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placeholderVariables, botId, nodes, onRenameVariable }) {
@@ -59,6 +59,7 @@ function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placehol
       {node.type === 'codexNode'            && <CodexInspector            data={node.data} onUpdate={p => upd(node.id, p)} />}
       {node.type === 'editCodexNode'        && <EditCodexInspector        data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
       {node.type === 'unlockCodexNode'      && <UnlockCodexInspector      data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
+      {node.type === 'reputationStatusNode' && <ReputationStatusInspector data={node.data} onUpdate={p => upd(node.id, p)} />}
       {node.type === 'purchaseNode'     && <PurchaseInspector     data={node.data} onUpdate={p => upd(node.id, p)} />}
       {['menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode'].includes(node.type) && <CommandEntryInspector type={node.type} data={node.data} onUpdate={p => upd(node.id, p)} />}
     </div>

@@ -203,8 +203,21 @@ export function useSimulator(nodes, edges, initVars) {
         dynamic[`inventory.my.${itemKey}`] = { type: 'text', value: `${itemKey} x${amount}` };
         dynamic[`inventory.my.amount.${itemKey}`] = { type: 'number', value: amount };
       });
+      const reputationStatusMap = {};
+      for (const node of nodes || []) {
+        if (node.type !== 'reputationStatusNode') continue;
+        for (const entry of node.data?.entries || []) {
+          const rKey = (entry.reputationType && entry.reputationTarget)
+            ? `${entry.reputationType}.${entry.reputationTarget}` : '';
+          if (!rKey || !entry.levels?.length) continue;
+          if (!reputationStatusMap[rKey]) reputationStatusMap[rKey] = entry.levels;
+        }
+      }
       Object.entries(relations).forEach(([relKey, value]) => {
         dynamic[`reputation.${relKey}`] = { type: 'number', value };
+        const levels = reputationStatusMap[relKey] || [];
+        const match = levels.find(l => value >= (l.min ?? -Infinity) && value <= (l.max ?? Infinity));
+        dynamic[`reputation.status.${relKey}`] = { type: 'text', value: match?.label ?? '' };
       });
       achievementList.forEach(key => {
         const meta = achievementMeta[key] || {};
@@ -475,10 +488,10 @@ export function useSimulator(nodes, edges, initVars) {
             pushLog({ kind: 'var', nodeId, msg: `♥ reputation.${rKey}: ${relations[rKey]}` });
             if (entry.notify) {
               const target = entry.reputationTarget || entry.characterKey || rKey;
-              const rawText = entry.notifyText || 'Ваше отношение с "{{target}}" стало {{value}}.';
+              const rawText = entry.notifyText || 'Ваше отношение с "{{reputation.target}}" стало {{reputation.value}}.';
               const extraVars = {
-                target: { type: 'text', value: target },
-                value: { type: 'number', value: relations[rKey] },
+                'reputation.target': { type: 'text', value: target },
+                'reputation.value': { type: 'number', value: relations[rKey] },
               };
               const text = interpolate(rawText, { ...templateVars(), ...extraVars });
               pushMsg({ from: 'bot', type: 'text', text });

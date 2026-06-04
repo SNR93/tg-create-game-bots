@@ -358,13 +358,13 @@ export function RelationInspector({ data, onUpdate }) {
               {entry.notify && (
                 <div style={{ marginTop: 6 }}>
                   <div style={{ ...s.hint, marginBottom: 3 }}>
-                    Текст уведомления (поддерживает <code style={{ color: '#38bdf8' }}>{'{{target}}'}</code> и <code style={{ color: '#38bdf8' }}>{'{{value}}'}</code>):
+                    Текст уведомления (доступны <code style={{ color: '#38bdf8' }}>{'{{reputation.target}}'}</code> и <code style={{ color: '#38bdf8' }}>{'{{reputation.value}}'}</code>):
                   </div>
                   <PlaceholderField
                     as="textarea"
                     rows={2}
                     value={entry.notifyText || ''}
-                    placeholder={`Ваше отношение с "{{target}}" стало {{value}}.`}
+                    placeholder={`Ваше отношение с "{{reputation.target}}" стало {{reputation.value}}.`}
                     onChange={e => patch(entry.id, { notifyText: e.target.value })}
                     style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical', minHeight: 48 }}
                   />
@@ -376,6 +376,68 @@ export function RelationInspector({ data, onUpdate }) {
       })}
       <button style={s.add} onClick={() => onUpdate({ entries: [...entries, { id: uuidv4(), reputationType: 'person', reputationTarget: '', action: 'add', value: 1, notify: false, notifyText: '' }] })}>
         + Добавить запись
+      </button>
+    </Section>
+  );
+}
+
+export function ReputationStatusInspector({ data, onUpdate }) {
+  const entries = data.entries || [];
+  const patchEntry = (id, val) => onUpdate({ entries: entries.map(e => e.id === id ? { ...e, ...val } : e) });
+  const patchLevel = (entryId, levelId, val) => patchEntry(entryId, {
+    levels: (entries.find(e => e.id === entryId)?.levels || []).map(l => l.id === levelId ? { ...l, ...val } : l),
+  });
+
+  return (
+    <Section title="Уровни репутации">
+      <div style={s.hint}>
+        Нода определяет статус репутации по диапазонам. Плейсхолдер автоматически появляется везде:
+        {' '}<code style={{ color: '#38bdf8' }}>{'{{reputation.status.person.Имя}}'}</code>.
+        Нода не обязана стоять в потоке — статус вычисляется динамически.
+      </div>
+      {entries.length === 0 && <div style={s.hint}>Добавьте объект ниже.</div>}
+      {entries.map(entry => {
+        const key = (entry.reputationType && entry.reputationTarget)
+          ? `${entry.reputationType}.${entry.reputationTarget}`
+          : '?';
+        const levels = entry.levels || [];
+        return (
+          <div key={entry.id} style={{ ...s.invCard, marginBottom: 12 }}>
+            <div style={s.invCardHead}>
+              <span style={{ fontSize: 13, marginRight: 4 }}>♥</span>
+              <select style={{ ...s.select }} value={entry.reputationType || 'person'} onChange={e => patchEntry(entry.id, { reputationType: e.target.value })}>
+                {REL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+              <Input value={entry.reputationTarget || ''} placeholder="Харбек Крепкоплечий" style={{ flex: 1 }} onChange={e => patchEntry(entry.id, { reputationTarget: e.target.value })} />
+              <button style={s.remove} onClick={() => onUpdate({ entries: entries.filter(e => e.id !== entry.id) })}>×</button>
+            </div>
+            {entry.reputationTarget && (
+              <div style={{ padding: '4px 10px 2px', color: '#4a5568', fontSize: 10 }}>
+                Плейсхолдер: <code style={{ color: '#38bdf8' }}>{`{{reputation.status.${key}}}`}</code>
+              </div>
+            )}
+            <div style={s.invCardBody}>
+              {levels.length === 0 && <div style={s.hint}>Нет уровней. Добавьте ниже.</div>}
+              {levels.map((level, idx) => (
+                <div key={level.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5 }}>
+                  <Input type="number" value={level.min ?? 0} style={{ width: 64, flex: 'none' }} onChange={e => patchLevel(entry.id, level.id, { min: +e.target.value })} />
+                  <span style={{ color: '#4a5568', fontSize: 11 }}>—</span>
+                  <Input type="number" value={level.max ?? 9} style={{ width: 64, flex: 'none' }} onChange={e => patchLevel(entry.id, level.id, { max: +e.target.value })} />
+                  <Input value={level.label || ''} placeholder={`Уровень ${idx + 1}`} style={{ flex: 1 }} onChange={e => patchLevel(entry.id, level.id, { label: e.target.value })} />
+                  <button style={s.remove} onClick={() => patchEntry(entry.id, { levels: levels.filter(l => l.id !== level.id) })}>×</button>
+                </div>
+              ))}
+              <button style={{ ...s.add, fontSize: 11, padding: '4px 8px' }}
+                onClick={() => patchEntry(entry.id, { levels: [...levels, { id: uuidv4(), min: 0, max: 9, label: '' }] })}>
+                + Добавить уровень
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      <button style={s.add}
+        onClick={() => onUpdate({ entries: [...entries, { id: uuidv4(), reputationType: 'person', reputationTarget: '', levels: [] }] })}>
+        + Добавить объект
       </button>
     </Section>
   );
