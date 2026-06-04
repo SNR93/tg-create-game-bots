@@ -694,6 +694,12 @@ app.get('/api/profile', requireAuth, (req, res) => {
   res.json(userPublic(getAuthUser(req.user.login)));
 });
 
+app.get('/api/users/:login/public', requireAuth, (req, res) => {
+  const u = getAuthUser(req.params.login);
+  if (!u) return res.status(404).json({ error: 'Пользователь не найден' });
+  res.json(userPublic(u));
+});
+
 app.put('/api/profile', requireAuth, (req, res) => {
   const users = ensureUserStore();
   const user = users[req.user.login];
@@ -1040,7 +1046,7 @@ app.delete('/api/bots/:id/history/node/:nodeId/:entryId', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/api/bots/:id/comment', (req, res) => {
+app.put('/api/bots/:id/comment', requireBotRole('owner'), (req, res) => {
   try {
     const p = getBotPath(req.params.id);
     if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });

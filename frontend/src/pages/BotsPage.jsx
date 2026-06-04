@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { changePassword, createBot, createUser, deleteBot, deleteUser, getProfile, listBots, listUsers, updateBotComment, updateProfile, updateUser, uploadProfileAvatar } from '../api';
+import { changePassword, createBot, createUser, deleteBot, deleteUser, getProfile, getUserPublic, listBots, listUsers, updateBotComment, updateProfile, updateUser, uploadProfileAvatar } from '../api';
 
 export default function BotsPage({ user, onLogout }) {
   const [bots, setBots] = useState([]);
@@ -12,6 +12,7 @@ export default function BotsPage({ user, onLogout }) {
   const [commentStatus, setCommentStatus] = useState({});
   const [showProfile, setShowProfile] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  const [viewingUser, setViewingUser] = useState(null);
   const navigate = useNavigate();
   const canManageUsers = user?.login === 'admin' || user?.login === 'SNR93' || user?.role === 'admin';
 
@@ -120,6 +121,7 @@ export default function BotsPage({ user, onLogout }) {
         {sortedBots.map(bot => {
           const commentVal = comments[bot.id] || '';
           const canDelete = user?.login === 'admin' || user?.login === 'SNR93' || bot.createdBy === user?.login;
+          const canEditComment = canDelete;
           return (
             <div key={bot.id} style={styles.card}>
               {/* Top: name + date + delete */}
@@ -138,23 +140,26 @@ export default function BotsPage({ user, onLogout }) {
               </div>
               {/* Bottom: creator + comment */}
               <div style={styles.cardBottom}>
-                <div style={styles.creatorBlock}>
-                  <UserAvatar login={bot.createdBy} size={64} />
-                  <span style={styles.creatorName}>{bot.createdBy || 'unknown'}</span>
+                <div style={styles.creatorBlock}
+                  onClick={() => bot.createdBy && getUserPublic(bot.createdBy).then(setViewingUser).catch(() => {})}
+                  title="Открыть профиль">
+                  <UserAvatar login={bot.createdBy} size={84} style={{ cursor: 'pointer' }} />
+                  <span style={{ ...styles.creatorName, cursor: 'pointer', color: '#bfdbfe' }}>{bot.createdBy || 'unknown'}</span>
                 </div>
                 <div style={styles.commentBlock}>
                   <textarea
-                    style={styles.commentArea}
+                    style={{ ...styles.commentArea, ...(canEditComment ? {} : { color: '#64748b', cursor: 'default' }) }}
                     value={commentVal}
                     maxLength={230}
                     rows={3}
-                    placeholder="Комментарий о боте..."
-                    onChange={e => setComments(prev => ({ ...prev, [bot.id]: e.target.value }))}
-                    onBlur={() => handleCommentSave(bot.id)}
+                    placeholder={canEditComment ? 'Комментарий о боте...' : ''}
+                    readOnly={!canEditComment}
+                    onChange={canEditComment ? e => setComments(prev => ({ ...prev, [bot.id]: e.target.value })) : undefined}
+                    onBlur={canEditComment ? () => handleCommentSave(bot.id) : undefined}
                   />
                   <div style={styles.commentFooter}>
                     <span style={{ color: commentVal.length >= 210 ? '#f87171' : '#475569' }}>
-                      {commentVal.length}/230
+                      {canEditComment ? `${commentVal.length}/230` : ''}
                     </span>
                     <span style={{ color: commentStatus[bot.id] === 'error' ? '#f87171' : '#475569' }}>
                       {commentStatus[bot.id] === 'saving' && 'Сохранение...'}
@@ -170,6 +175,7 @@ export default function BotsPage({ user, onLogout }) {
       </section>
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} onUser={profile => {}} />}
       {showUsers && <UsersModal currentUser={user} onClose={() => setShowUsers(false)} />}
+      {viewingUser && <UserProfileModal profile={viewingUser} onClose={() => setViewingUser(null)} />}
     </div>
   );
 }
@@ -189,6 +195,44 @@ function UserAvatar({ login, size = 22 }) {
         else setGone(true);
       }}
     />
+  );
+}
+
+function UserProfileModal({ profile, onClose }) {
+  const safeName = (profile.login || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const [avatarSrc, setAvatarSrc] = useState(`/api/media/avatars/${safeName}.png`);
+  const [avatarGone, setAvatarGone] = useState(false);
+
+  return (
+    <div style={styles.modalOverlay} onMouseDown={onClose}>
+      <div style={{ ...styles.modal, width: 420, padding: 0, overflow: 'hidden' }} onMouseDown={e => e.stopPropagation()}>
+        {/* Avatar full-width header */}
+        <div style={{ position: 'relative', background: '#0f172a', minHeight: 160, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {!avatarGone ? (
+            <img
+              src={avatarSrc}
+              alt=""
+              style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }}
+              onError={() => {
+                if (avatarSrc.endsWith('.png')) setAvatarSrc(`/api/media/avatars/${safeName}.jpg`);
+                else setAvatarGone(true);
+              }}
+            />
+          ) : (
+            <div style={{ width: 96, height: 96, borderRadius: '50%', background: '#293056', color: '#bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 800 }}>
+              {profile.login?.slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <button style={{ position: 'absolute', top: 10, right: 12, background: 'rgba(0,0,0,0.5)', border: 'none', color: '#e2e8f0', fontSize: 22, cursor: 'pointer', borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>×</button>
+        </div>
+        {/* Info block */}
+        <div style={{ padding: '16px 20px 20px' }}>
+          <div style={{ color: '#e2e8f0', fontSize: 20, fontWeight: 800, marginBottom: 4 }}>{profile.login}</div>
+          {profile.about && <div style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6, marginTop: 8, whiteSpace: 'pre-wrap' }}>{profile.about}</div>}
+          {!profile.about && <div style={{ color: '#475569', fontSize: 13, marginTop: 8 }}>Профиль не заполнен</div>}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -513,6 +557,8 @@ const styles = {
     borderRight: '1px solid #252840',
     background: '#12131a',
     minHeight: 100,
+    cursor: 'pointer',
+    transition: 'background 0.15s',
   },
   creatorName: {
     color: '#94a3b8',
