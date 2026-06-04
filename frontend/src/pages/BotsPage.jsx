@@ -136,7 +136,9 @@ export default function BotsPage({ user, onLogout }) {
               <button style={styles.botName} onClick={() => navigate(`/editor/${bot.id}`)}>
                 {bot.name}
               </button>
-              <button style={styles.btnDelete} onClick={e => handleDelete(e, bot.id)}>Удалить</button>
+              {(user?.login === 'admin' || user?.login === 'SNR93' || bot.createdBy === user?.login) && (
+                <button style={styles.btnDelete} onClick={e => handleDelete(e, bot.id)}>Удалить</button>
+              )}
             </div>
             <div style={styles.createdByCell}>{bot.createdBy || 'unknown'}</div>
             <div style={styles.commentCell}>
