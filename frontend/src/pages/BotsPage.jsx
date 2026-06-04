@@ -102,11 +102,11 @@ export default function BotsPage({ user, onLogout }) {
             style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: 52 }}
             placeholder="Комментарий о боте"
             value={newComment}
-            maxLength={170}
+            maxLength={230}
             onChange={e => setNewComment(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleCreate()}
           />
-          <span style={styles.charHint}>{newComment.length}/170</span>
+          <span style={styles.charHint}>{newComment.length}/230</span>
         </div>
         <button style={styles.btnCreate} onClick={handleCreate} disabled={creating}>
           {creating ? 'Создание...' : 'Создать бота'}
@@ -139,22 +139,22 @@ export default function BotsPage({ user, onLogout }) {
               {/* Bottom: creator + comment */}
               <div style={styles.cardBottom}>
                 <div style={styles.creatorBlock}>
-                  <UserAvatar login={bot.createdBy} size={40} />
+                  <UserAvatar login={bot.createdBy} size={64} />
                   <span style={styles.creatorName}>{bot.createdBy || 'unknown'}</span>
                 </div>
                 <div style={styles.commentBlock}>
                   <textarea
                     style={styles.commentArea}
                     value={commentVal}
-                    maxLength={170}
+                    maxLength={230}
                     rows={3}
                     placeholder="Комментарий о боте..."
                     onChange={e => setComments(prev => ({ ...prev, [bot.id]: e.target.value }))}
                     onBlur={() => handleCommentSave(bot.id)}
                   />
                   <div style={styles.commentFooter}>
-                    <span style={{ color: commentVal.length >= 160 ? '#f87171' : '#475569' }}>
-                      {commentVal.length}/170
+                    <span style={{ color: commentVal.length >= 210 ? '#f87171' : '#475569' }}>
+                      {commentVal.length}/230
                     </span>
                     <span style={{ color: commentStatus[bot.id] === 'error' ? '#f87171' : '#475569' }}>
                       {commentStatus[bot.id] === 'saving' && 'Сохранение...'}
@@ -508,18 +508,20 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: '12px 16px',
+    justifyContent: 'space-between',
+    padding: '14px 12px 10px',
     borderRight: '1px solid #252840',
     background: '#12131a',
+    minHeight: 100,
   },
   creatorName: {
     color: '#94a3b8',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 600,
     textAlign: 'center',
     wordBreak: 'break-all',
+    marginTop: 'auto',
+    paddingTop: 6,
   },
   commentBlock: {
     padding: '10px 12px',
