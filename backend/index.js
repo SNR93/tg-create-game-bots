@@ -721,7 +721,7 @@ app.put('/api/profile/password', requireAuth, (req, res) => {
 
 const AVATARS_DIR = path.join(MEDIA_DIR, 'avatars');
 
-app.post('/api/profile/avatar', express.raw({ type: ['image/png', 'image/jpeg', 'image/jpg', '*/*'], limit: '5mb' }), asyncRoute(async (req, res) => {
+app.post('/api/profile/avatar', requireAuth, express.raw({ type: ['image/png', 'image/jpeg', 'image/jpg', '*/*'], limit: '5mb' }), asyncRoute(async (req, res) => {
   const buf = req.body;
   if (!buf || buf.length < 4) return res.status(400).json({ error: 'Файл пустой' });
 
