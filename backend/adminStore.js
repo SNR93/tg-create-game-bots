@@ -48,11 +48,18 @@ async function listVersions(botId) {
 }
 
 async function createVersion(botId, scenario) {
-  return (await pool.query(`
+  const result = (await pool.query(`
     INSERT INTO scenario_versions (id, bot_id, version_number, scenario)
     SELECT $1, $2, COALESCE(MAX(version_number), 0) + 1, $3::jsonb FROM scenario_versions WHERE bot_id = $2
     RETURNING id, version_number, status, created_at, published_at
   `, [uuidv4(), botId, JSON.stringify(scenario)])).rows[0];
+  await pool.query(`
+    DELETE FROM scenario_versions
+    WHERE bot_id = $1 AND status = 'archived' AND id NOT IN (
+      SELECT id FROM scenario_versions WHERE bot_id = $1 ORDER BY version_number DESC LIMIT 50
+    )
+  `, [botId]);
+  return result;
 }
 
 async function publishVersion(botId, versionId, rolloutPercentage = 100) {

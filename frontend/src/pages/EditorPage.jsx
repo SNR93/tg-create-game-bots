@@ -125,7 +125,7 @@ function makeDefaultData(type) {
     case 'continueStoryNode': return { title: 'Продолжить историю' };
     case 'relationNode':    return { title: 'Отношения', entries: [] };
     case 'achievementNode': return { title: 'Выдать достижение', achievementKey: '', imageUrl: '', notify: true };
-    case 'achievementsViewNode': return { title: 'Достижения', template: 'Достижения: {{achievements.unlocked}} / {{achievements.total}}' };
+    case 'achievementsViewNode': return { title: 'Достижения', template: 'Достижения: {{achievements.unlocked}} / {{achievements.total}}\n{{achievements.list}}' };
     case 'promocodeNode':   return { title: 'Промокод', prompt: 'Введите промокод:' };
     case 'subscenarioNode': return { title: 'Подсценарий', targetNodeId: '' };
     case 'returnNode':      return { title: 'Возврат' };
@@ -445,6 +445,15 @@ function extractCodexVars(nodes) {
       const key = String(e.codexKey || '').trim().replace(/^codex\./i, '');
       if (key) vars[`codex.${key}`] = { type: 'boolean', defaultValue: false };
     }
+  }
+  return vars;
+}
+
+function extractAchievementVars(nodes) {
+  const vars = { 'achievements.list': { type: 'text', defaultValue: '' } };
+  for (const node of (nodes || [])) {
+    if (node.type !== 'achievementNode' || !node.data?.achievementKey) continue;
+    vars[`achievements.text.${node.data.achievementKey}`] = { type: 'text', defaultValue: '' };
   }
   return vars;
 }
@@ -1222,7 +1231,7 @@ export default function EditorPage({ user }) {
   if (!bot) return <div style={s.loading}>Загрузка...</div>;
 
   const inspectorNode = selectedNodeIds.length === 1 && inspectorNodeId ? (nodes.find(n => n.id === inspectorNodeId) ?? null) : null;
-  const allBotVariables = { ...extractVars(nodes), ...extractCodexVars(nodes) };
+  const allBotVariables = { ...extractVars(nodes), ...extractCodexVars(nodes), ...extractAchievementVars(nodes) };
   const placeholderVariables = { ...SYSTEM_PLACEHOLDER_VARIABLES, ...allBotVariables };
   const botVariables = inspectorNode ? varsBeforeNode(nodes, edges, inspectorNode.id) : allBotVariables;
   const simulatorVariables = simulatorStartNodeId ? varsBeforeNode(nodes, edges, simulatorStartNodeId) : {};

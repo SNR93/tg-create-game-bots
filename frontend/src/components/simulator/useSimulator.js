@@ -211,6 +211,16 @@ export function useSimulator(nodes, edges, initVars) {
       const achievementKeys = new Set(nodes.filter(item => item.type === 'achievementNode' && item.data?.achievementKey).map(item => item.data.achievementKey));
       dynamic['achievements.unlocked'] = { type: 'number', value: achievementList.filter(key => achievementKeys.has(key)).length };
       dynamic['achievements.total'] = { type: 'number', value: achievementKeys.size };
+      const unlockedTitles = [];
+      for (const node of nodes || []) {
+        if (node.type === 'achievementNode' && node.data?.achievementKey) {
+          const key = node.data.achievementKey;
+          const title = node.data.title || key;
+          dynamic[`achievements.text.${key}`] = { type: 'text', value: title };
+          if (achievementList.includes(key)) unlockedTitles.push(title);
+        }
+      }
+      dynamic['achievements.list'] = { type: 'text', value: unlockedTitles.map(t => `— ${t}`).join('\n') };
       for (const node of nodes || []) {
         if (node.type !== 'codexNode') continue;
         const entries = node.data?.entries?.length > 0

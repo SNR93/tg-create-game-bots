@@ -386,10 +386,15 @@ export function AchievementInspector({ data, onUpdate, botVariables }) {
 
 export function AchievementsViewInspector({ data, onUpdate }) {
   return <Section title="Показать достижения">
-    <PlaceholderField as="textarea" rows={4} value={data.template || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter formatting
+    <PlaceholderField as="textarea" rows={5} value={data.template || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter formatting
       style={{ ...s.input, flex: 'none', width: '100%' }}
-      placeholder="Достижения: {{achievements.unlocked}} / {{achievements.total}}" onChange={event => onUpdate({ template: event.target.value })} />
-    <div style={s.hint}>{'{{achievements.unlocked}}'} — кол-во полученных, {'{{achievements.total}}'} — общее кол-во достижений на схеме.</div>
+      placeholder={'Достижения: {{achievements.unlocked}} / {{achievements.total}}\n{{achievements.list}}'}
+      onChange={event => onUpdate({ template: event.target.value })} />
+    <div style={s.hint}>
+      {'{{achievements.unlocked}}'} — кол-во полученных, {'{{achievements.total}}'} — общее количество.{' '}
+      {'{{achievements.list}}'} — список названий разблокированных достижений.{' '}
+      {'{{achievements.text.ключ}}'} — название конкретного достижения.
+    </div>
   </Section>;
 }
 

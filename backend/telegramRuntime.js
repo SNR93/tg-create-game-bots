@@ -194,6 +194,16 @@ class TelegramRuntime {
       .map(item => item.data.achievementKey));
     dynamic['achievements.unlocked'] = { type: 'number', value: (session.achievementList || []).filter(key => achievementKeys.has(key)).length };
     dynamic['achievements.total'] = { type: 'number', value: achievementKeys.size };
+    const unlockedTitles = [];
+    for (const node of session.bot?.nodes || []) {
+      if (node.type === 'achievementNode' && node.data?.achievementKey) {
+        const key = node.data.achievementKey;
+        const title = node.data.title || key;
+        dynamic[`achievements.text.${key}`] = { type: 'text', value: title };
+        if ((session.achievementList || []).includes(key)) unlockedTitles.push(title);
+      }
+    }
+    dynamic['achievements.list'] = { type: 'text', value: unlockedTitles.map(t => `— ${t}`).join('\n') };
     for (const node of session.bot?.nodes || []) {
       if (node.type !== 'codexNode') continue;
       const entries = node.data.entries?.length > 0
@@ -826,7 +836,7 @@ class TelegramRuntime {
         case 'achievementsViewNode': {
           const total = new Set((bot.nodes || []).filter(item => item.type === 'achievementNode' && item.data?.achievementKey).map(item => item.data.achievementKey)).size;
           const unlocked = (session.achievementList || []).filter(key => (bot.nodes || []).some(item => item.type === 'achievementNode' && item.data?.achievementKey === key)).length;
-          const template = node.data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}';
+          const template = node.data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}\n{{achievements.list}}';
           const text = this.interp(
             template
               .replace(/\{\{\s*achievements\.unlocked\s*\}\}/g, String(unlocked))
