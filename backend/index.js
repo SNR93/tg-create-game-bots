@@ -1126,6 +1126,13 @@ app.post('/api/bots/:id/admin/jobs', asyncRoute(async (req, res) => {
   res.status(201).json(await adminStore.createJob(req.params.id, req.body.type, req.body.runAt, req.body.payload));
 }));
 
+app.post('/api/bots/:id/admin/broadcast-count', asyncRoute(async (req, res) => {
+  const { filters = [], inactiveDays = 0 } = req.body;
+  const { query, params } = buildBroadcastQuery(req.params.id, [], filters, +inactiveDays || 0);
+  const result = await pool.query(`SELECT COUNT(*) AS count FROM (${query}) sub`, params);
+  res.json({ count: +result.rows[0].count });
+}));
+
 app.get('/api/bots/:id/admin/products', asyncRoute(async (req, res) => {
   res.json(await adminStore.listProducts(req.params.id));
 }));
@@ -1232,36 +1239,43 @@ app.use((error, req, res, next) => {
   res.status(error.status || 500).json({ error: error.message || 'Internal server error' });
 });
 
+function buildBroadcastQuery(botId, playerIds = [], filters = [], inactiveDays = 0) {
+  let query = `SELECT p.chat_id FROM players p WHERE p.bot_id = $1 AND p.chat_id IS NOT NULL AND ($2::text[] = '{}' OR p.telegram_user_id = ANY($2::text[]))`;
+  const params = [botId, playerIds];
+  for (const filter of filters) {
+    const source = filter.source || 'variable';
+    const key = filter.key;
+    const safeOp = ['=', '!=', '>', '<', '>=', '<='].includes(filter.operator) ? filter.operator : '=';
+    if (source === 'variable' && key) {
+      params.push(key, String(filter.value ?? ''));
+      query += ` AND EXISTS (SELECT 1 FROM player_variables v WHERE v.bot_id = p.bot_id AND v.telegram_user_id = p.telegram_user_id AND v.var_name = $${params.length - 1} AND (v.value #>> '{}') ${safeOp} $${params.length})`;
+    } else if (source === 'inventory' && key) {
+      params.push(key, Number(filter.value) || 0);
+      query += ` AND EXISTS (SELECT 1 FROM player_inventory i WHERE i.bot_id = p.bot_id AND i.telegram_user_id = p.telegram_user_id AND i.item_key = $${params.length - 1} AND i.quantity ${safeOp} $${params.length})`;
+    } else if (source === 'achievement' && key) {
+      params.push(key);
+      query += ` AND ${filter.operator === 'not_unlocked' ? 'NOT ' : ''}EXISTS (SELECT 1 FROM player_achievements a WHERE a.bot_id = p.bot_id AND a.telegram_user_id = p.telegram_user_id AND a.achievement_key = $${params.length})`;
+    }
+  }
+  if (+inactiveDays > 0) {
+    params.push(+inactiveDays);
+    query += ` AND p.last_seen_at < NOW() - ($${params.length} * INTERVAL '1 day')`;
+  }
+  return { query, params };
+}
+
 initDatabase()
   .then(async () => {
     await telegramRuntime.startConfigured();
     startJobWorker({
       broadcast: async job => {
-        const playerIds = job.payload.playerIds || [];
-        const filter = job.payload.filter;
-        let query = `SELECT p.chat_id FROM players p WHERE p.bot_id = $1 AND p.chat_id IS NOT NULL AND ($2::text[] = '{}' OR p.telegram_user_id = ANY($2::text[]))`;
-        const params = [job.bot_id, playerIds];
-        const source = filter?.source || (filter?.varName ? 'variable' : '');
-        const key = filter?.key || filter?.varName;
-        const operator = ['=', '!=', '>', '<', '>=', '<='].includes(filter?.operator) ? filter.operator : '=';
-        if (source === 'variable' && key) {
-          params.push(key, String(filter.value ?? ''));
-          query += ` AND EXISTS (SELECT 1 FROM player_variables v WHERE v.bot_id = p.bot_id AND v.telegram_user_id = p.telegram_user_id AND v.var_name = $${params.length - 1} AND (v.value #>> '{}') ${operator} $${params.length})`;
-        }
-        if (source === 'inventory' && key) {
-          params.push(key, Number(filter.value) || 0);
-          query += ` AND EXISTS (SELECT 1 FROM player_inventory i WHERE i.bot_id = p.bot_id AND i.telegram_user_id = p.telegram_user_id AND i.item_key = $${params.length - 1} AND i.quantity ${operator} $${params.length})`;
-        }
-        if (source === 'achievement' && key) {
-          params.push(key);
-          query += ` AND ${filter.operator === 'not_unlocked' ? 'NOT ' : ''}EXISTS (SELECT 1 FROM player_achievements a WHERE a.bot_id = p.bot_id AND a.telegram_user_id = p.telegram_user_id AND a.achievement_key = $${params.length})`;
-        }
-        if ((+job.payload.inactiveDays || 0) > 0) {
-          params.push(+job.payload.inactiveDays);
-          query += ` AND p.last_seen_at < NOW() - ($${params.length} * INTERVAL '1 day')`;
-        }
+        const filters = job.payload.filters || (job.payload.filter ? [job.payload.filter] : []);
+        const { query, params } = buildBroadcastQuery(job.bot_id, job.payload.playerIds || [], filters, job.payload.inactiveDays || 0);
         const result = await pool.query(query, params);
-        await telegramRuntime.broadcast(job.bot_id, result.rows.map(r => r.chat_id), job.payload.text || '');
+        const chatIds = result.rows.map(r => r.chat_id);
+        await pool.query(`UPDATE scheduled_jobs SET payload = payload || $2::jsonb, updated_at = NOW() WHERE id = $1`, [job.id, JSON.stringify({ total_count: chatIds.length })]);
+        const { sent, failed } = await telegramRuntime.broadcast(job.bot_id, chatIds, job.payload.text || '');
+        await pool.query(`UPDATE scheduled_jobs SET payload = payload || $2::jsonb, updated_at = NOW() WHERE id = $1`, [job.id, JSON.stringify({ sent_count: sent, failed_count: failed, total_count: chatIds.length })]);
       },
       scenario_resume: async job => telegramRuntime.resumeScenario(job.bot_id, job.payload),
       keyboard_timeout: async job => telegramRuntime.handleKeyboardTimeout(job.bot_id, job.payload),

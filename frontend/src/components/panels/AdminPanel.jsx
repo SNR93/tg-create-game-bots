@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   createBotPlayer,
   createBotBackup,
+  broadcastCount,
   createBotJob,
   createBotVersion,
   deleteBotGlobal,
@@ -603,6 +604,248 @@ function AchievementSection({ botId, player, busy, run }) {
   </Section>;
 }
 
+const OP_LABELS = { '=': '= равно', '!=': '≠ не равно', '>': '> больше', '<': '< меньше', '>=': '≥ больше или равно', '<=': '≤ меньше или равно' };
+const ACHIEVEMENT_OP_LABELS = { 'unlocked': 'получено', 'not_unlocked': 'не получено' };
+
+function BroadcastPanel({ botId, onSubmit, items, busy }) {
+  const { variables, inventoryKeys, achievementKeys } = useBotSuggestions(botId);
+  const varNames = Object.keys(variables);
+  const textRef = useRef(null);
+  const [text, setText] = useState('');
+  const [runAt, setRunAt] = useState('');
+  const [filters, setFilters] = useState([]);
+  const [inactiveDays, setInactiveDays] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  function addFilter() {
+    setFilters(f => [...f, { id: uuidv4(), source: 'variable', key: '', operator: '=', value: '' }]);
+  }
+  function removeFilter(id) { setFilters(f => f.filter(item => item.id !== id)); }
+  function patchFilter(id, p) { setFilters(f => f.map(item => item.id === id ? { ...item, ...p } : item)); }
+
+  function wrapSelection(open, close = open) {
+    const el = textRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? text.length;
+    const end = el.selectionEnd ?? text.length;
+    const selected = text.slice(start, end) || 'текст';
+    const next = `${text.slice(0, start)}${open}${selected}${close}${text.slice(end)}`;
+    setText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + open.length, start + open.length + selected.length);
+    });
+  }
+
+  async function handlePreview() {
+    setPreviewLoading(true);
+    setPreview(null);
+    try {
+      const res = await broadcastCount(botId, { filters: filters.filter(f => f.key), inactiveDays: +inactiveDays || 0 });
+      setPreview(res.count);
+    } catch { setPreview('?'); }
+    setPreviewLoading(false);
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    if (!text.trim()) return;
+    const payload = {
+      text,
+      filters: filters.filter(f => f.key).map(({ source, key, operator, value }) => ({ source, key, operator, value })),
+      inactiveDays: +inactiveDays || 0,
+    };
+    onSubmit({ type: 'broadcast', runAt: runAt || new Date().toISOString(), payload });
+    setText(''); setFilters([]); setInactiveDays(''); setRunAt(''); setPreview(null);
+  }
+
+  const fmtTools = [
+    { label: 'B', title: 'Жирный', open: '<b>', close: '</b>', style: { fontWeight: 700 } },
+    { label: 'I', title: 'Курсив', open: '<i>', close: '</i>', style: { fontStyle: 'italic' } },
+    { label: 'U', title: 'Подчеркнуть', open: '<u>', close: '</u>', style: { textDecoration: 'underline' } },
+    { label: 'S', title: 'Зачеркнуть', open: '<s>', close: '</s>', style: { textDecoration: 'line-through' } },
+    { label: '||', title: 'Спойлер', open: '<tg-spoiler>', close: '</tg-spoiler>' },
+    { label: '<>', title: 'Код', open: '<code>', close: '</code>' },
+  ];
+
+  const jobStatusLabel = { pending: 'Ожидает', running: 'Отправляется', completed: 'Завершено', failed: 'Ошибка' };
+  const jobStatusColor = { pending: '#94a3b8', running: '#38bdf8', completed: '#4ade80', failed: '#f87171' };
+
+  return (
+    <div>
+      <form onSubmit={handleSubmit}>
+        <Section title="Сообщение рассылки">
+          {/* Formatting toolbar */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+            {fmtTools.map(t => (
+              <button key={t.label} type="button" title={t.title}
+                style={{ ...s.fmtBtn, ...(t.style || {}) }}
+                onMouseDown={e => { e.preventDefault(); wrapSelection(t.open, t.close); }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {/* Large textarea */}
+          <textarea
+            ref={textRef}
+            value={text}
+            onChange={e => setText(e.target.value)}
+            maxLength={4096}
+            placeholder="Текст сообщения рассылки. Поддерживает Telegram HTML: <b>жирный</b>, <i>курсив</i>, <u>подчёркнутый</u> и т.д."
+            style={{ ...s.smallInput, width: '100%', boxSizing: 'border-box', minHeight: 140, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', color: text.length > 3800 ? '#f87171' : '#64748b', fontSize: 11, marginTop: 3 }}>
+            {text.length} / 4096 символов · осталось {4096 - text.length}
+          </div>
+        </Section>
+
+        <Section title="Дата и время отправки">
+          <div style={{ color: '#718096', fontSize: 12, marginBottom: 8 }}>
+            Оставьте пустым — рассылка уйдёт немедленно после добавления в очередь.
+          </div>
+          <input
+            type="datetime-local"
+            value={runAt}
+            onChange={e => setRunAt(e.target.value)}
+            style={{ ...s.smallInput, maxWidth: 260 }}
+          />
+        </Section>
+
+        <Section title="Фильтр аудитории (необязательно)">
+          <div style={{ color: '#718096', fontSize: 12, marginBottom: 10 }}>
+            Ограничьте получателей по условиям. Все условия применяются одновременно (AND) — рассылку получат только те, кто соответствует <b style={{ color: '#94a3b8' }}>каждому</b> из них.
+            Если условий нет — рассылка уйдёт всем игрокам.
+          </div>
+
+          {filters.map((f, idx) => {
+            const isAchievement = f.source === 'achievement';
+            const keySuggestions = f.source === 'variable' ? varNames : f.source === 'inventory' ? inventoryKeys : achievementKeys;
+            const opOptions = isAchievement
+              ? Object.entries(ACHIEVEMENT_OP_LABELS)
+              : Object.entries(OP_LABELS);
+
+            return (
+              <div key={f.id} style={{ marginBottom: 10, background: '#0f172a', border: '1px solid #2d3458', borderRadius: 7, padding: '10px 12px' }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ color: '#718096', fontSize: 11, width: 36, flexShrink: 0 }}>#{idx + 1}</span>
+                  <button type="button" style={{ ...s.iconDanger, marginLeft: 'auto' }} onClick={() => removeFilter(f.id)}>×</button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 160px 1fr', gap: 6, alignItems: 'start' }}>
+                  <div>
+                    <div style={sb.label}>Тип</div>
+                    <select style={{ ...s.select, width: '100%' }} value={f.source}
+                      onChange={e => patchFilter(f.id, { source: e.target.value, key: '', operator: e.target.value === 'achievement' ? 'unlocked' : '=', value: '' })}>
+                      <option value="variable">Переменная</option>
+                      <option value="inventory">Предмет</option>
+                      <option value="achievement">Достижение</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={sb.label}>{f.source === 'variable' ? 'Имя переменной' : f.source === 'inventory' ? 'Ключ предмета' : 'Ключ достижения'}</div>
+                    <SuggestInput value={f.key} suggestions={keySuggestions} placeholder="Начните вводить..."
+                      style={{ ...s.smallInput, width: '100%', boxSizing: 'border-box' }} onChange={key => patchFilter(f.id, { key })} />
+                  </div>
+                  <div>
+                    <div style={sb.label}>Условие</div>
+                    <select style={{ ...s.select, width: '100%' }} value={f.operator}
+                      onChange={e => patchFilter(f.id, { operator: e.target.value })}>
+                      {opOptions.map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
+                    </select>
+                  </div>
+                  {!isAchievement && (
+                    <div>
+                      <div style={sb.label}>Значение</div>
+                      <input style={{ ...s.smallInput, width: '100%', boxSizing: 'border-box' }} value={f.value}
+                        placeholder={f.source === 'inventory' ? 'Количество' : 'Значение'}
+                        onChange={e => patchFilter(f.id, { value: e.target.value })} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          <button type="button" style={{ ...s.save, background: '#1e3a5f', marginBottom: 10 }} onClick={addFilter}>
+            + Добавить условие
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <span style={{ color: '#718096', fontSize: 12 }}>Неактивны более</span>
+            <input style={{ ...s.quantity, width: 70 }} type="number" min="0" value={inactiveDays}
+              placeholder="дней" onChange={e => setInactiveDays(e.target.value)} />
+            <span style={{ color: '#718096', fontSize: 12 }}>дней (0 = без ограничений)</span>
+          </div>
+
+          {/* Operator reference */}
+          <div style={{ marginTop: 12, padding: '10px 12px', background: '#111827', border: '1px solid #2d3458', borderRadius: 7 }}>
+            <div style={{ color: '#818cf8', fontSize: 11, fontWeight: 700, marginBottom: 6 }}>СПРАВКА ПО УСЛОВИЯМ</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 16px', fontSize: 11, color: '#94a3b8' }}>
+              <div><code style={{ color: '#c4b5fd' }}>=</code> — точное совпадение</div>
+              <div><code style={{ color: '#c4b5fd' }}>≠</code> — не равно</div>
+              <div><code style={{ color: '#c4b5fd' }}>&gt; / &lt;</code> — больше / меньше (для чисел и инвентаря)</div>
+              <div><code style={{ color: '#c4b5fd' }}>≥ / ≤</code> — больше или равно / меньше или равно</div>
+              <div><code style={{ color: '#c4b5fd' }}>получено</code> — игрок имеет это достижение</div>
+              <div><code style={{ color: '#c4b5fd' }}>не получено</code> — игрок не имеет достижение</div>
+            </div>
+            <div style={{ marginTop: 6, color: '#64748b', fontSize: 11 }}>
+              Пример: Переменная «Монеты» ≥ 100 — получат только игроки у которых 100 и более монет.
+            </div>
+          </div>
+        </Section>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0' }}>
+          <button type="button" style={{ ...s.save, background: '#1a2a3a' }} onClick={handlePreview} disabled={previewLoading}>
+            {previewLoading ? 'Считаем...' : 'Посчитать аудиторию'}
+          </button>
+          {preview !== null && (
+            <span style={{ color: '#38bdf8', fontSize: 13 }}>
+              Получателей: <b>{preview}</b> игроков
+            </span>
+          )}
+          <button style={{ ...s.primary, marginLeft: 'auto' }} disabled={busy || !text.trim()}>
+            В очередь →
+          </button>
+        </div>
+      </form>
+
+      <Section title={`Задачи (${items.length})`}>
+        {items.length === 0 && <div style={s.empty}>Задач нет.</div>}
+        {items.map((item, idx) => {
+          const p = item.payload || {};
+          const total = p.total_count;
+          const sent = p.sent_count;
+          const failed = p.failed_count;
+          const remaining = (total != null && sent != null && failed != null) ? Math.max(0, total - sent - failed) : null;
+          const color = jobStatusColor[item.status] || '#94a3b8';
+          return (
+            <div key={item.id || idx} style={{ ...s.editRow, flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '8px 10px' }}>
+              <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 8 }}>
+                <span style={{ color, fontWeight: 700, fontSize: 12 }}>{jobStatusLabel[item.status] || item.status}</span>
+                <span style={{ color: '#64748b', fontSize: 11 }}>{new Date(item.run_at).toLocaleString('ru')}</span>
+                {item.last_error && <span style={{ color: '#f87171', fontSize: 11 }}>⚠ {item.last_error}</span>}
+              </div>
+              {p.text && <div style={{ color: '#cbd5e1', fontSize: 12, maxWidth: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.text}</div>}
+              {total != null && (
+                <div style={{ display: 'flex', gap: 12, fontSize: 11 }}>
+                  <span style={{ color: '#94a3b8' }}>Всего: <b style={{ color: '#e2e8f0' }}>{total}</b></span>
+                  {sent != null && <span style={{ color: '#94a3b8' }}>Отправлено: <b style={{ color: '#4ade80' }}>{sent}</b></span>}
+                  {failed != null && failed > 0 && <span style={{ color: '#94a3b8' }}>Ошибок: <b style={{ color: '#f87171' }}>{failed}</b></span>}
+                  {remaining != null && remaining > 0 && <span style={{ color: '#94a3b8' }}>Осталось: <b style={{ color: '#38bdf8' }}>{remaining}</b></span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </Section>
+    </div>
+  );
+}
+
+const sb = {
+  label: { color: '#64748b', fontSize: 11, marginBottom: 3 },
+};
+
 function ManagementPanel({ botId, tab, setError }) {
   const [items, setItems] = useState([]);
   const [analytics, setAnalytics] = useState(null);
@@ -616,8 +859,9 @@ function ManagementPanel({ botId, tab, setError }) {
     } catch (error) { setError(error.message); }
   }, [botId, tab, setError]);
   useEffect(() => { load(); }, [load]);
+  const [busy, setBusy] = useState(false);
   const update = (key, value) => setForm(previous => ({ ...previous, [key]: value }));
-  const execute = async action => { try { setError(''); await action(); setForm({}); await load(); } catch (error) { setError(error.message); } };
+  const execute = async action => { try { setError(''); setBusy(true); await action(); setForm({}); await load(); } catch (error) { setError(error.message); } finally { setBusy(false); } };
 
   if (tab === 'globals') return <div style={s.management}>
     <Section title="Новая переменная">
@@ -687,30 +931,7 @@ function ManagementPanel({ botId, tab, setError }) {
   </div>;
 
   return <div style={s.management}>
-    <Section title="Запланировать рассылку">
-      <form style={s.createRow} onSubmit={event => {
-        event.preventDefault();
-        const filter = form.filterKey ? { source: form.filterSource || 'variable', key: form.filterKey, operator: form.filterOperator || '=', value: form.filterVal || '' } : undefined;
-        execute(() => createBotJob(botId, { type: 'broadcast', runAt: form.runAt || new Date().toISOString(), payload: { text: form.text || '', filter, inactiveDays: +form.inactiveDays || 0 } }));
-      }}>
-        <CountedInput style={s.smallInput} placeholder="Текст рассылки" value={form.text || ''} maxLength={TELEGRAM_LIMITS.messageText} showCounter onChange={event => update('text', event.target.value)} />
-        <input style={s.smallInput} type="datetime-local" value={form.runAt || ''} onChange={event => update('runAt', event.target.value)} />
-        <button style={s.primary}>В очередь</button>
-      </form>
-      <div style={{ ...s.createRow, marginTop: 8, borderTop: '1px solid #2d3458', paddingTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, color: '#718096', alignSelf: 'center' }}>Фильтр аудитории:</span>
-        <select style={s.select} value={form.filterSource || 'variable'} onChange={event => update('filterSource', event.target.value)}>
-          <option value="variable">Переменная</option><option value="inventory">Предмет</option><option value="achievement">Достижение</option>
-        </select>
-        <input style={s.smallInput} placeholder="Ключ" value={form.filterKey || ''} onChange={event => update('filterKey', event.target.value)} />
-        <select style={s.select} value={form.filterOperator || '='} onChange={event => update('filterOperator', event.target.value)}>
-          {(form.filterSource === 'achievement' ? [['unlocked', 'получено'], ['not_unlocked', 'не получено']] : [['=', '='], ['!=', '≠'], ['>', '>'], ['<', '<'], ['>=', '≥'], ['<=', '≤']]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-        <input style={s.smallInput} placeholder="Значение" value={form.filterVal || ''} onChange={event => update('filterVal', event.target.value)} />
-        <input style={s.quantity} type="number" min="0" placeholder="Неактивен дней" value={form.inactiveDays || ''} onChange={event => update('inactiveDays', event.target.value)} />
-      </div>
-    </Section>
-    <SimpleRows items={items} title="Задачи" render={item => `${item.job_type} · ${item.status} · ${new Date(item.run_at).toLocaleString('ru')}${item.last_error ? ` · ${item.last_error}` : ''}`} />
+    <BroadcastPanel botId={botId} items={items} busy={busy} onSubmit={job => execute(() => createBotJob(botId, job))} />
   </div>;
 }
 
@@ -857,6 +1078,7 @@ const s = {
   secondary: { marginLeft: 'auto', background: '#2a2d3e', border: '1px solid #3a3f55', borderRadius: 5, color: '#cbd5e0', padding: '6px 9px', fontSize: 12, cursor: 'pointer' },
   danger: { background: '#991b1b', border: 'none', borderRadius: 5, color: '#fff', padding: '6px 9px', fontSize: 12, cursor: 'pointer' },
   iconDanger: { background: 'transparent', border: 'none', color: '#fc8181', fontSize: 16, cursor: 'pointer' },
+  fmtBtn: { width: 30, height: 27, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#1e2030', border: '1px solid #3a3f55', borderRadius: 5, color: '#cbd5e1', fontSize: 12, cursor: 'pointer', padding: 0 },
   logRow: { display: 'flex', gap: 10, padding: '5px 0', borderTop: '1px solid #222436', fontSize: 12 },
   logTime: { color: '#718096', width: 145, flexShrink: 0 },
   logText: { color: '#e2e8f0', flex: 1 },

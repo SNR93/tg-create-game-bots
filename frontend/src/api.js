@@ -323,6 +323,7 @@ export const createBotBackup = id => adminRequest(id, '/backups', { method: 'POS
 export const restoreBotBackup = (id, backupId) => adminRequest(id, `/backups/${encodeURIComponent(backupId)}/restore`, { method: 'POST' });
 export const listBotJobs = id => adminRequest(id, '/jobs');
 export const createBotJob = (id, job) => adminRequest(id, '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job) });
+export const broadcastCount = (id, body) => adminRequest(id, '/broadcast-count', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 export const listBotProducts = id => adminRequest(id, '/products');
 export const saveBotProduct = (id, key, data) => adminRequest(id, `/products/${encodeURIComponent(key)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const deleteBotProduct = (id, key) => adminRequest(id, `/products/${encodeURIComponent(key)}`, { method: 'DELETE' });

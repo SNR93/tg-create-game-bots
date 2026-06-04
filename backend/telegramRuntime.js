@@ -1110,7 +1110,14 @@ async function broadcast(botId, chatIds, text) {
   const runtime = runtimes.get(botId);
   if (!runtime?.running) throw new Error('Telegram bot is not running');
   assertText(text, TELEGRAM_LIMITS.messageText, 'Текст рассылки');
-  for (const chatId of chatIds) await runtime.request('sendMessage', { chat_id: chatId, text });
+  let sent = 0, failed = 0;
+  for (const chatId of chatIds) {
+    try {
+      await runtime.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });
+      sent++;
+    } catch { failed++; }
+  }
+  return { sent, failed };
 }
 
 async function resumeScenario(botId, payload) {
