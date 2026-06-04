@@ -120,19 +120,12 @@ export function ReputationStatusNode({ data, selected }) {
         const key = (entry.reputationType && entry.reputationTarget)
           ? `${entry.reputationType}.${entry.reputationTarget}`
           : '?';
-        const levels = entry.levels || [];
         return (
-          <div key={entry.id}>
-            <div style={{ ...s.row, background: '#1a1c2a' }}>
-              <span style={{ ...s.key, color: '#38bdf8', fontWeight: 600 }}>reputation.status.{key}</span>
-              <span style={s.value}>{levels.length} ур.</span>
-            </div>
-            {levels.map(level => (
-              <div key={level.id} style={{ ...s.row, paddingLeft: 22 }}>
-                <span style={s.key}>{level.label || '—'}</span>
-                <span style={s.value}>{level.min}..{level.max}</span>
-              </div>
-            ))}
+          <div key={entry.id} style={s.row}>
+            <span style={{ color: '#38bdf8', fontFamily: 'monospace', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              reputation.status.{key}
+            </span>
+            <span style={s.value}>{(entry.levels || []).length} ур.</span>
           </div>
         );
       })}

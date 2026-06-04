@@ -23,6 +23,7 @@ import { CommandEntryNode, ContinueStoryNode } from '../components/nodes/Command
 import { AchievementNode, AchievementsViewNode, BreakLoopNode, CheckpointNode, CodexNode, EditCodexNode, EditMessageNode, FormulaNode, GlobalVariableNode, HttpRequestNode, InventoryNode, InventoryViewNode, InvokeCommandNode, LocationNode, LoopNode, PollNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ReputationStatusNode, ResetProgressNode, ReturnNode, StarsShopNode, StickerNode, SubscenarioNode, SubscriptionCheckNode, TextInputNode, UnlockCodexNode } from '../components/nodes/GameplayNodes';
 import { NodeDebugContext, withNodeDebug } from '../components/nodes/DebuggableNode';
 import { SYSTEM_PLACEHOLDER_VARIABLES, isSystemPlaceholderName, validateScenarioText } from '../telegramLimits';
+import { getNodeMeta } from '../components/nodes/nodeCatalog';
 
 import NodePanel    from '../components/panels/NodePanel';
 import ContextMenu  from '../components/panels/ContextMenu';
@@ -784,9 +785,11 @@ export default function EditorPage({ user }) {
     };
   }, []);
 
-  const isValidConnection = useCallback((params) =>
-    canConnectFrom(edgesRef.current, nodesRef.current, params.source, params.sourceHandle)
-  , []);
+  const isValidConnection = useCallback((params) => {
+    // Reject connections where the "source" is actually a target-only handle ('in')
+    if ((params.sourceHandle ?? '') === 'in') return false;
+    return canConnectFrom(edgesRef.current, nodesRef.current, params.source, params.sourceHandle);
+  }, []);
 
   // KEY FIX: do NOT use onPaneClick to close contextMenu — it fires after onConnectEnd
   const onConnectEnd = useCallback((event) => {
@@ -1358,32 +1361,54 @@ export default function EditorPage({ user }) {
 
       {/* Search overlay */}
       {showSearch && (
-        <div style={{ position: 'absolute', top: 56, left: '50%', transform: 'translateX(-50%)', zIndex: 300, background: '#1a1c2a', border: '1px solid #3b82f6', borderRadius: 10, padding: 12, width: 360, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+        <div style={{ position: 'absolute', top: 56, left: '50%', transform: 'translateX(-50%)', zIndex: 300, background: '#1a1c2a', border: '1px solid #3b82f6', borderRadius: 10, padding: 12, width: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
           <input autoFocus style={{ width: '100%', boxSizing: 'border-box', background: '#12131a', border: '1px solid #3a3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 13, padding: '7px 10px', outline: 'none' }}
-            placeholder="Поиск нод по тексту, типу, ID..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Поиск по названию, тексту, ID..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             onKeyDown={e => { if (e.key === 'Escape') setShowSearch(false); e.stopPropagation(); }} />
-          <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 8 }}>
+          <div style={{ maxHeight: 300, overflowY: 'auto', marginTop: 8 }}>
             {(() => {
               const q = searchQuery.toLowerCase().trim();
-              if (!q) return <div style={{ color: '#4a5568', fontSize: 12, padding: '4px 0' }}>Введите запрос для поиска</div>;
-              const results = nodes.filter(n =>
-                (n.data?.title || '').toLowerCase().includes(q) ||
-                (n.data?.nodeId || '').toLowerCase().includes(q) ||
-                n.type.toLowerCase().includes(q) ||
-                n.id.toLowerCase().includes(q) ||
-                (n.data?.text || '').toLowerCase().includes(q)
-              );
+              if (!q) return <div style={{ color: '#4a5568', fontSize: 12, padding: '4px 0' }}>Введите запрос. Ищет по названию, тексту, кнопкам, переменным.</div>;
+              function nodeText(n) {
+                const d = n.data || {};
+                const parts = [
+                  d.title, d.text, d.nodeId, n.id,
+                  ...(d.messages || []).map(m => m.text),
+                  ...(d.buttons || []).map(b => b.label),
+                  ...(d.branches || []).map(b => b.label),
+                  ...(d.entries || []).map(e => e.varName || e.itemKey || e.reputationTarget || e.characterKey || e.codexKey || ''),
+                  ...(d.entries || []).flatMap(e => (e.levels || []).map(l => l.label)),
+                  d.prompt, d.template, d.formula, d.command,
+                ];
+                return parts.filter(Boolean).join(' ').toLowerCase();
+              }
+              const results = nodes.filter(n => nodeText(n).includes(q));
               if (!results.length) return <div style={{ color: '#4a5568', fontSize: 12, padding: '4px 0' }}>Ничего не найдено</div>;
-              return results.slice(0, 20).map(n => (
-                <div key={n.id} style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#e2e8f0', display: 'flex', gap: 8 }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#252a42'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  onClick={() => { setHighlightedNodeId(n.id); rfRef.current?.setCenter(n.position.x + 120, n.position.y + 60, { zoom: 1, duration: 400 }); setShowSearch(false); }}>
-                  <span style={{ color: '#718096', flexShrink: 0 }}>{n.type}</span>
-                  <span style={{ fontWeight: 600 }}>{n.data?.title || n.id.slice(0, 12)}</span>
-                  {n.data?.nodeId && <span style={{ color: '#4a5568' }}>#{n.data.nodeId}</span>}
-                </div>
-              ));
+              return results.slice(0, 30).map(n => {
+                const meta = getNodeMeta(n.type);
+                const label = meta?.label || n.type;
+                const title = n.data?.title || '';
+                return (
+                  <div key={n.id}
+                    style={{ padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#252a42'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                      setHighlightedNodeId(n.id);
+                      setShowSearch(false);
+                      const w = n.measured?.width || 240;
+                      const h = n.measured?.height || 120;
+                      rfRef.current?.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom: 1.1, duration: 500 });
+                    }}>
+                    <span style={{ fontSize: 14, flexShrink: 0 }}>{meta?.icon || '▪'}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || label}</div>
+                      {title && <div style={{ color: '#718096', fontSize: 11 }}>{label}</div>}
+                    </div>
+                    {n.data?.nodeId && <span style={{ color: '#4a5568', fontSize: 10, flexShrink: 0 }}>#{n.data.nodeId}</span>}
+                  </div>
+                );
+              });
             })()}
           </div>
         </div>
