@@ -717,7 +717,7 @@ export default function EditorPage({ user }) {
 
   // Autosave on the configured minute interval.
   useEffect(() => {
-    if (!bot || !autoSaveEnabled) return;
+    if (!bot || !autoSaveEnabled || !canEdit) return;
     const minutes = Math.max(1, Number(autoSaveMinutes) || 5);
     const timer = setInterval(async () => {
       if (!initializedRef.current) return;
@@ -998,10 +998,9 @@ export default function EditorPage({ user }) {
   }, []);
 
   const onNodeClick = useCallback((event, node) => {
-    if (!canEdit) return;
     if (event.ctrlKey || event.metaKey) return;
     setInspectorNodeId(node.id);
-  }, [canEdit]);
+  }, []);
 
   const onNodeDragStop = useCallback((event, draggedNode) => {
     if (draggedNode.type === 'groupNode') return;
@@ -1036,10 +1035,9 @@ export default function EditorPage({ user }) {
   const selectedNodeIds = nodes.filter(n => n.selected).map(n => n.id);
   const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
   useEffect(() => {
-    if (!canEdit) { setInspectorNodeId(null); return; }
     if (selectedNodeId) setInspectorNodeId(selectedNodeId);
     else setInspectorNodeId(null);
-  }, [selectedNodeId, canEdit]);
+  }, [selectedNodeId]);
 
   function updateNodeData(nodeId, patch) {
     setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n));
@@ -1413,7 +1411,6 @@ export default function EditorPage({ user }) {
               fitView deleteKeyCode={null}
               nodesDraggable={canEdit}
               nodesConnectable={canEdit}
-              elementsSelectable={canEdit}
               selectionKeyCode="Control" multiSelectionKeyCode="Control"
               selectionMode="partial"
               style={{ background: '#12131a' }}
