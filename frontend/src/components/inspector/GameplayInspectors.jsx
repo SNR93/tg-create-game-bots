@@ -798,6 +798,19 @@ export function UnlockCodexInspector({ data, onUpdate, nodes = [] }) {
               <button style={s.remove} onClick={() => setEntries(entries.filter(e => e.id !== entry.id))}>×</button>
             )}
           </div>
+          {entry.value !== false && (
+            <div style={s.invCardBody}>
+              <PlaceholderField
+                as="textarea"
+                rows={2}
+                value={entry.notifyText ?? ''}
+                placeholder="Кодекс обновлен"
+                maxLength={TELEGRAM_LIMITS.messageText}
+                style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical', minHeight: 48 }}
+                onChange={e => patch(entry.id, { notifyText: e.target.value })}
+              />
+            </div>
+          )}
           {entry.codexKey && !codexKeys.includes(entry.codexKey) && (
             <div style={{ padding: '4px 10px', color: '#f6ad55', fontSize: 11 }}>
               Ключ «{entry.codexKey}» не найден среди нод Кодекс на схеме.

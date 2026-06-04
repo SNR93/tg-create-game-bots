@@ -705,6 +705,10 @@ export function useSimulator(nodes, edges, initVars) {
             setRuntimeVars(v => ({ ...v, [name]: { type: 'boolean', value: val } }));
             runtimeVarsRef.current = { ...runtimeVarsRef.current, [name]: { type: 'boolean', value: val } };
             pushLog({ kind: 'var', nodeId, msg: `${name} = ${val}` });
+            if (val) {
+              const notifyText = interpolate(entry.notifyText ?? 'Кодекс обновлен', templateVars());
+              pushMsg({ from: 'bot', type: 'text', text: notifyText });
+            }
           }
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;

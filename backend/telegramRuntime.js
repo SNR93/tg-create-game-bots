@@ -1016,6 +1016,10 @@ class TelegramRuntime {
             const name = codexVariableName(entry);
             if (!name) continue;
             session.vars[name] = { type: 'boolean', value: entry.value !== false };
+            if (entry.value !== false) {
+              const notifyText = this.interp(entry.notifyText ?? 'Кодекс обновлен', this.templateVars(session), chatId, node.id);
+              await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(notifyText) });
+            }
           }
           if (unlockEntries.length > 0) await playerStore.saveVariables(this.botId, session.playerId, session.vars);
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
