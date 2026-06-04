@@ -782,6 +782,32 @@ app.post('/api/telegram/webhook/:id/:secret', asyncRoute(async (req, res) => {
 // GET /api/bots — list all bots
 app.use('/api', requireAuth);
 
+// ── Bot access control ──────────────────────────────────────────────────────
+
+const SUPERUSERS = new Set(['admin', 'SNR93']);
+const ROLE_LEVEL = { denied: -1, viewer: 0, editor: 1, owner: 2 };
+
+async function resolveUserBotRole(botId, userLogin) {
+  if (SUPERUSERS.has(userLogin)) return 'owner';
+  const roles = await adminStore.listRoles(botId);
+  const specific = roles.find(r => r.user_key === userLogin);
+  if (specific) return specific.role;
+  const all = roles.find(r => r.user_key === '@all');
+  if (all) return all.role;
+  return 'viewer';
+}
+
+function requireBotRole(minRole) {
+  return asyncRoute(async (req, res, next) => {
+    const role = await resolveUserBotRole(req.params.id, req.user.login);
+    if (ROLE_LEVEL[role] < ROLE_LEVEL[minRole]) {
+      return res.status(403).json({ error: role === 'denied' ? 'Доступ запрещён' : 'Недостаточно прав' });
+    }
+    req.botRole = role;
+    next();
+  });
+}
+
 app.get('/api/telegram-backup', requireSnr93, (req, res) => {
   res.json(readTelegramBackupSettings());
 });
@@ -811,13 +837,24 @@ app.post('/api/telegram-backup/restore', requireSnr93, express.raw({ type: '*/*'
   res.json({ ok: true, ...result });
 }));
 
-app.get('/api/bots', (req, res) => {
-  try {
-    res.json(listBots());
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+app.get('/api/bots', asyncRoute(async (req, res) => {
+  const allBots = listBots();
+  if (SUPERUSERS.has(req.user.login)) return res.json(allBots);
+  const rolesResult = await pool.query(
+    `SELECT bot_id, user_key, role FROM project_roles WHERE user_key = $1 OR user_key = '@all'`,
+    [req.user.login]
+  );
+  const byBot = {};
+  for (const r of rolesResult.rows) {
+    if (!byBot[r.bot_id]) byBot[r.bot_id] = {};
+    byBot[r.bot_id][r.user_key] = r.role;
   }
-});
+  res.json(allBots.filter(bot => {
+    const botRoles = byBot[bot.id] || {};
+    const effective = botRoles[req.user.login] || botRoles['@all'] || 'viewer';
+    return effective !== 'denied';
+  }));
+}));
 
 // POST /api/bots — create new bot
 app.post('/api/bots', (req, res) => {
@@ -847,14 +884,14 @@ app.post('/api/bots', (req, res) => {
 });
 
 // GET /api/bots/:id — get bot
-app.get('/api/bots/:id', (req, res) => {
+app.get('/api/bots/:id', requireBotRole('viewer'), (req, res) => {
   const p = getBotPath(req.params.id);
   if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
   res.json(JSON.parse(fs.readFileSync(p, 'utf-8')));
 });
 
 // PUT /api/bots/:id — save bot
-app.put('/api/bots/:id', (req, res) => {
+app.put('/api/bots/:id', requireBotRole('editor'), (req, res) => {
   try {
     const p = getBotPath(req.params.id);
     if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
@@ -1168,15 +1205,18 @@ app.delete('/api/bots/:id/admin/globals/:name', asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/bots/:id/admin/roles', asyncRoute(async (req, res) => {
-  res.json(await adminStore.listRoles(req.params.id));
+  const roles = await adminStore.listRoles(req.params.id);
+  const myRole = await resolveUserBotRole(req.params.id, req.user.login);
+  res.json({ roles, myRole });
 }));
 
-app.put('/api/bots/:id/admin/roles/:userKey', asyncRoute(async (req, res) => {
-  res.json(await adminStore.saveRole(req.params.id, req.params.userKey, req.body.role));
+app.put('/api/bots/:id/admin/roles/:userKey', requireBotRole('owner'), asyncRoute(async (req, res) => {
+  const userKey = decodeURIComponent(req.params.userKey);
+  res.json(await adminStore.saveRole(req.params.id, userKey, req.body.role, req.body.comment || ''));
 }));
 
-app.delete('/api/bots/:id/admin/roles/:userKey', asyncRoute(async (req, res) => {
-  await adminStore.deleteRole(req.params.id, req.params.userKey);
+app.delete('/api/bots/:id/admin/roles/:userKey', requireBotRole('owner'), asyncRoute(async (req, res) => {
+  await adminStore.deleteRole(req.params.id, decodeURIComponent(req.params.userKey));
   res.json({ ok: true });
 }));
 
@@ -1206,7 +1246,7 @@ app.post('/api/bots/:id/telegram/stop', asyncRoute(async (req, res) => {
 }));
 
 // DELETE /api/bots/:id — delete bot
-app.delete('/api/bots/:id', (req, res) => {
+app.delete('/api/bots/:id', requireBotRole('owner'), (req, res) => {
   const p = getBotPath(req.params.id);
   if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
   telegramRuntime.remove(req.params.id);

@@ -130,13 +130,13 @@ async function listRoles(botId) {
   return (await pool.query(`SELECT * FROM project_roles WHERE bot_id = $1 ORDER BY created_at DESC`, [botId])).rows;
 }
 
-async function saveRole(botId, userKey, role) {
-  if (!['owner', 'editor', 'viewer'].includes(role)) throw new Error('Unsupported project role');
+async function saveRole(botId, userKey, role, comment = '') {
+  if (!['owner', 'editor', 'viewer', 'denied'].includes(role)) throw new Error('Unsupported project role');
   return (await pool.query(`
-    INSERT INTO project_roles (bot_id, user_key, role) VALUES ($1, $2, $3)
-    ON CONFLICT (bot_id, user_key) DO UPDATE SET role = EXCLUDED.role
+    INSERT INTO project_roles (bot_id, user_key, role, comment) VALUES ($1, $2, $3, $4)
+    ON CONFLICT (bot_id, user_key) DO UPDATE SET role = EXCLUDED.role, comment = EXCLUDED.comment
     RETURNING *
-  `, [botId, userKey, role])).rows[0];
+  `, [botId, userKey, role, String(comment || '').slice(0, 500)])).rows[0];
 }
 
 async function deleteRole(botId, userKey) {

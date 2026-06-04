@@ -204,6 +204,16 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_jobs_pending ON scheduled_jobs(status, run_at);
     CREATE INDEX IF NOT EXISTS idx_purchases_player ON purchases(bot_id, telegram_user_id, created_at DESC);
   `);
+
+  // Migrate project_roles: add comment column and expand role CHECK to include 'denied'
+  await pool.query(`ALTER TABLE project_roles ADD COLUMN IF NOT EXISTS comment TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE project_roles DROP CONSTRAINT project_roles_role_check;
+    EXCEPTION WHEN undefined_object THEN NULL; END $$;
+    ALTER TABLE project_roles ADD CONSTRAINT project_roles_role_check
+      CHECK (role IN ('owner', 'editor', 'viewer', 'denied'));
+  `);
 }
 
 module.exports = { pool, initDatabase };

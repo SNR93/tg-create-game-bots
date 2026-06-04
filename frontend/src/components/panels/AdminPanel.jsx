@@ -846,11 +846,153 @@ const sb = {
   label: { color: '#64748b', fontSize: 11, marginBottom: 3 },
 };
 
+const ROLE_LABELS = { owner: 'Владелец', editor: 'Редактор', viewer: 'Зритель', denied: 'Запрещён' };
+const ROLE_COLORS = { owner: '#818cf8', editor: '#38bdf8', viewer: '#94a3b8', denied: '#f87171' };
+const ROLE_DESCS = {
+  owner:  'Полный доступ: редактирование сценария, управление игроками, публикация версий и назначение ролей.',
+  editor: 'Может редактировать сценарий и управлять игроками. Не может публиковать версии и управлять ролями.',
+  viewer: 'Только просмотр сценария. Не может вносить изменения.',
+  denied: 'Полный запрет. Пользователь не видит бот в списке и не может его открыть.',
+};
+
+function RolesPanel({ botId, setError }) {
+  const [roles, setRoles] = useState([]);
+  const [myRole, setMyRole] = useState('viewer');
+  const [busy, setBusy] = useState(false);
+  const [userKey, setUserKey] = useState('');
+  const [role, setRole] = useState('viewer');
+  const [comment, setComment] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const res = await listBotRoles(botId);
+      setRoles(res.roles || []);
+      setMyRole(res.myRole || 'viewer');
+    } catch (e) { setError(e.message); }
+  }, [botId, setError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const isOwner = myRole === 'owner';
+
+  async function handleSave(event) {
+    event.preventDefault();
+    if (!userKey.trim()) return;
+    setBusy(true);
+    try {
+      await saveBotRole(botId, userKey.trim(), role, comment);
+      setUserKey(''); setComment(''); await load();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+
+  async function handleDelete(key) {
+    setBusy(true);
+    try { await deleteBotRole(botId, key); await load(); } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <>
+      {/* Hint block */}
+      <div style={{ background: '#0f172a', border: '1px solid #2d3458', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
+        <div style={{ color: '#818cf8', fontWeight: 700, fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 }}>Как работают роли</div>
+        <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 8px', lineHeight: 1.6 }}>
+          По умолчанию все пользователи имеют право <b style={{ color: '#94a3b8' }}>Зритель</b> — могут открыть и посмотреть бот, но не могут ничего изменить.
+          Индивидуальное правило имеет приоритет над <code style={{ color: '#c4b5fd' }}>@all</code>.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 11 }}>
+          {Object.entries(ROLE_DESCS).map(([r, desc]) => (
+            <div key={r} style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
+              <span style={{ color: ROLE_COLORS[r], fontWeight: 700, flexShrink: 0 }}>{ROLE_LABELS[r]}</span>
+              <span style={{ color: '#64748b' }}>{desc}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 8, padding: '7px 10px', background: '#111827', borderRadius: 6, fontSize: 11, color: '#94a3b8' }}>
+          <b style={{ color: '#c4b5fd' }}>@all</b> — специальный логин, устанавливает право по умолчанию для всех пользователей.
+          Например: <code style={{ color: '#c4b5fd' }}>@all = Запрещён</code> + <code style={{ color: '#c4b5fd' }}>alice = Редактор</code>
+          — все заблокированы, кроме alice.
+        </div>
+        <div style={{ marginTop: 6, fontSize: 11, color: '#475569' }}>
+          Пользователи <b>admin</b> и <b>SNR93</b> всегда имеют права Владельца на все боты.
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: '#64748b' }}>Ваша роль в этом боте:</span>
+        <span style={{ color: ROLE_COLORS[myRole], fontWeight: 700, fontSize: 13 }}>{ROLE_LABELS[myRole] || myRole}</span>
+      </div>
+
+      {/* Add/edit form — owner only */}
+      {isOwner && (
+        <Section title="Назначить роль">
+          <form onSubmit={handleSave}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 6, marginBottom: 6 }}>
+              <div>
+                <div style={sb.label}>Логин пользователя или @all</div>
+                <input style={{ ...s.smallInput, width: '100%', boxSizing: 'border-box' }}
+                  placeholder="логин или @all (для всех)"
+                  value={userKey} onChange={e => setUserKey(e.target.value)} />
+              </div>
+              <div>
+                <div style={sb.label}>Право доступа</div>
+                <select style={{ ...s.select, width: '100%' }} value={role} onChange={e => setRole(e.target.value)}>
+                  {Object.entries(ROLE_LABELS).map(([val, lbl]) => (
+                    <option key={val} value={val}>{lbl}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <div style={sb.label}>Комментарий (необязательно)</div>
+              <input style={{ ...s.smallInput, width: '100%', boxSizing: 'border-box' }}
+                placeholder="Например: тестировщик, временный доступ..."
+                value={comment} maxLength={500} onChange={e => setComment(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button style={s.primary} disabled={busy || !userKey.trim()}>Сохранить</button>
+            </div>
+          </form>
+        </Section>
+      )}
+
+      {/* Roles list */}
+      <Section title={`Правила доступа (${roles.length})`}>
+        {roles.length === 0 && (
+          <div style={s.empty}>Нет явных правил. Все пользователи имеют право «Зритель» по умолчанию.</div>
+        )}
+        {roles.map(item => (
+          <div key={item.user_key} style={{ ...s.editRow, flexDirection: 'column', alignItems: 'flex-start', gap: 3, padding: '8px 10px' }}>
+            <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 8 }}>
+              <code style={{ color: '#c4b5fd', fontSize: 13, fontWeight: 700 }}>
+                {item.user_key}
+              </code>
+              <span style={{ color: ROLE_COLORS[item.role] || '#94a3b8', fontWeight: 600, fontSize: 12 }}>
+                {ROLE_LABELS[item.role] || item.role}
+              </span>
+              <span style={{ color: '#475569', fontSize: 11, marginLeft: 'auto' }}>
+                {new Date(item.created_at).toLocaleDateString('ru')}
+              </span>
+              {isOwner && (
+                <button style={s.iconDanger} onClick={() => handleDelete(item.user_key)}>×</button>
+              )}
+            </div>
+            {item.comment && (
+              <div style={{ color: '#64748b', fontSize: 11, paddingLeft: 2 }}>{item.comment}</div>
+            )}
+          </div>
+        ))}
+      </Section>
+    </>
+  );
+}
+
 function ManagementPanel({ botId, tab, setError }) {
   const [items, setItems] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [form, setForm] = useState({});
-  const loaders = { globals: listBotGlobals, promocodes: listBotPromocodes, products: listBotProducts, analytics: getBotAnalytics, versions: listBotVersions, backups: listBotBackups, jobs: listBotJobs, roles: listBotRoles };
+  const loaders = { globals: listBotGlobals, promocodes: listBotPromocodes, products: listBotProducts, analytics: getBotAnalytics, versions: listBotVersions, backups: listBotBackups, jobs: listBotJobs };
   const load = useCallback(async () => {
     try {
       setError('');
@@ -919,16 +1061,7 @@ function ManagementPanel({ botId, tab, setError }) {
     <SimpleRows items={items} title="Резервные копии" render={item => `${item.backup_type} · ${new Date(item.created_at).toLocaleString('ru')}`} action={item => <button style={s.save} onClick={() => confirm('Восстановить сценарий из этой копии?') && execute(() => restoreBotBackup(botId, item.id))}>Восстановить</button>} />
   </div>;
 
-  if (tab === 'roles') return <div style={s.management}>
-    <Section title="Роль пользователя проекта">
-      <form style={s.createRow} onSubmit={event => { event.preventDefault(); execute(() => saveBotRole(botId, form.userKey, form.role || 'viewer')); }}>
-        <input style={s.smallInput} placeholder="Логин или ID" value={form.userKey || ''} onChange={event => update('userKey', event.target.value)} />
-        <select style={s.select} value={form.role || 'viewer'} onChange={event => update('role', event.target.value)}><option value="owner">owner</option><option value="editor">editor</option><option value="viewer">viewer</option></select>
-        <button style={s.primary}>Сохранить</button>
-      </form>
-    </Section>
-    <SimpleRows items={items} title="Роли проекта" render={item => `${item.user_key} · ${item.role}`} onDelete={item => execute(() => deleteBotRole(botId, item.user_key))} />
-  </div>;
+  if (tab === 'roles') return <div style={s.management}><RolesPanel botId={botId} setError={setError} /></div>;
 
   return <div style={s.management}>
     <BroadcastPanel botId={botId} items={items} busy={busy} onSubmit={job => execute(() => createBotJob(botId, job))} />

@@ -328,7 +328,7 @@ export const listBotProducts = id => adminRequest(id, '/products');
 export const saveBotProduct = (id, key, data) => adminRequest(id, `/products/${encodeURIComponent(key)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const deleteBotProduct = (id, key) => adminRequest(id, `/products/${encodeURIComponent(key)}`, { method: 'DELETE' });
 export const listBotRoles = id => adminRequest(id, '/roles');
-export const saveBotRole = (id, key, role) => adminRequest(id, `/roles/${encodeURIComponent(key)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) });
+export const saveBotRole = (id, key, role, comment = '') => adminRequest(id, `/roles/${encodeURIComponent(key)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, comment }) });
 export const deleteBotRole = (id, key) => adminRequest(id, `/roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
 
 // Node history
