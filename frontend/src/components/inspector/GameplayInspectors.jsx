@@ -290,14 +290,36 @@ export function ResetProgressInspector({ data, onUpdate, botVariables }) {
 
 const REL_ACTION = { add: { icon: '💚', label: 'Увеличить' }, subtract: { icon: '❤️', label: 'Уменьшить' }, set: { icon: '🔢', label: 'Установить' } };
 
+const REL_TYPES = [
+  { value: 'person',       label: 'Персонаж',     prefix: 'person' },
+  { value: 'guild',        label: 'Гильдия',      prefix: 'guild' },
+  { value: 'city',         label: 'Город',        prefix: 'city' },
+  { value: 'faction',      label: 'Фракция',      prefix: 'faction' },
+  { value: 'organization', label: 'Организация',  prefix: 'organization' },
+  { value: 'region',       label: 'Регион',       prefix: 'region' },
+  { value: 'deity',        label: 'Божество',     prefix: 'deity' },
+];
+
+function relKey(entry) {
+  const type = entry.reputationType || 'person';
+  const target = entry.reputationTarget || entry.characterKey || '';
+  return target ? `${type}.${target}` : '';
+}
+
 export function RelationInspector({ data, onUpdate }) {
   const entries = data.entries || [];
   const patch = (id, value) => onUpdate({ entries: entries.map(entry => entry.id === id ? { ...entry, ...value } : entry) });
   return (
-    <Section title="Отношения с персонажами">
-      {entries.length === 0 && <div style={s.hint}>Нет изменений. Добавьте персонажа ниже.</div>}
+    <Section title="Изменить репутацию">
+      <div style={s.hint}>
+        Каждая запись доступна в плейсхолдере вида{' '}
+        <code style={{ color: '#38bdf8' }}>{'{{reputation.person.Харбек Крепкоплечий}}'}</code>.
+        Тип определяет вторую часть ключа (person / guild / city / ...).
+      </div>
+      {entries.length === 0 && <div style={s.hint}>Нет изменений. Добавьте запись ниже.</div>}
       {entries.map(entry => {
         const meta = REL_ACTION[entry.action || 'add'];
+        const key = relKey(entry);
         return (
           <div key={entry.id} style={s.invCard}>
             <div style={s.invCardHead}>
@@ -311,19 +333,49 @@ export function RelationInspector({ data, onUpdate }) {
             </div>
             <div style={s.invCardBody}>
               <div style={s.invRow}>
-                <span style={s.invLabel}>Персонаж</span>
-                <Input value={entry.characterKey || ''} placeholder="ключ_персонажа" onChange={e => patch(entry.id, { characterKey: e.target.value })} />
+                <span style={{ ...s.invLabel, width: 54 }}>Тип</span>
+                <select style={{ ...s.select, flex: 1 }} value={entry.reputationType || 'person'} onChange={e => patch(entry.id, { reputationType: e.target.value })}>
+                  {REL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
               </div>
               <div style={s.invRow}>
-                <span style={s.invLabel}>На сколько</span>
+                <span style={{ ...s.invLabel, width: 54 }}>Название</span>
+                <Input value={entry.reputationTarget || entry.characterKey || ''} placeholder="Харбек Крепкоплечий" onChange={e => patch(entry.id, { reputationTarget: e.target.value, characterKey: undefined })} />
+              </div>
+              <div style={s.invRow}>
+                <span style={{ ...s.invLabel, width: 54 }}>На сколько</span>
                 <Input type="number" value={entry.value ?? 1} style={{ width: 80, flex: 'none' }} onChange={e => patch(entry.id, { value: +e.target.value })} />
               </div>
+              {key && (
+                <div style={{ color: '#4a5568', fontSize: 10, marginTop: 2 }}>
+                  Плейсхолдер: <code style={{ color: '#38bdf8' }}>{`{{reputation.${key}}}`}</code>
+                </div>
+              )}
+              <label style={{ ...s.check, marginTop: 6 }}>
+                <input type="checkbox" checked={!!entry.notify} onChange={e => patch(entry.id, { notify: e.target.checked })} />
+                <span>Уведомить игрока об изменении</span>
+              </label>
+              {entry.notify && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ ...s.hint, marginBottom: 3 }}>
+                    Текст уведомления (поддерживает <code style={{ color: '#38bdf8' }}>{'{{target}}'}</code> и <code style={{ color: '#38bdf8' }}>{'{{value}}'}</code>):
+                  </div>
+                  <PlaceholderField
+                    as="textarea"
+                    rows={2}
+                    value={entry.notifyText || ''}
+                    placeholder={`Ваше отношение с "{{target}}" стало {{value}}.`}
+                    onChange={e => patch(entry.id, { notifyText: e.target.value })}
+                    style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical', minHeight: 48 }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         );
       })}
-      <button style={s.add} onClick={() => onUpdate({ entries: [...entries, { id: uuidv4(), characterKey: '', action: 'add', value: 1 }] })}>
-        + Добавить изменение
+      <button style={s.add} onClick={() => onUpdate({ entries: [...entries, { id: uuidv4(), reputationType: 'person', reputationTarget: '', action: 'add', value: 1, notify: false, notifyText: '' }] })}>
+        + Добавить запись
       </button>
     </Section>
   );

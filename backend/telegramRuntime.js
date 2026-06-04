@@ -184,6 +184,9 @@ class TelegramRuntime {
       dynamic[`inventory.my.${itemKey}`] = { type: 'text', value: `${itemKey} x${quantity}` };
       dynamic[`inventory.my.amount.${itemKey}`] = { type: 'number', value: quantity };
     }
+    for (const [relKey, value] of Object.entries(session.relations || {})) {
+      dynamic[`reputation.${relKey}`] = { type: 'number', value };
+    }
     for (const achievementKey of session.achievementList || []) {
       const meta = session.achievementMeta?.[achievementKey] || {};
       const title = meta.title || achievementKey;
@@ -793,13 +796,26 @@ class TelegramRuntime {
         case 'relationNode':
           session.relations ||= {};
           for (const entry of node.data.entries || []) {
-            if (!entry.characterKey) continue;
-            const current = session.relations[entry.characterKey] || 0;
+            const rKey = (entry.reputationType && entry.reputationTarget)
+              ? `${entry.reputationType}.${entry.reputationTarget}`
+              : (entry.characterKey || '');
+            if (!rKey) continue;
+            const current = session.relations[rKey] || 0;
             let value = +entry.value || 0;
             if (entry.action === 'add') value = current + value;
             if (entry.action === 'subtract') value = current - value;
-            session.relations[entry.characterKey] = value;
-            await playerStore.setRelation(this.botId, session.playerId, entry.characterKey, value);
+            session.relations[rKey] = value;
+            await playerStore.setRelation(this.botId, session.playerId, rKey, value);
+            if (entry.notify) {
+              const target = entry.reputationTarget || entry.characterKey || rKey;
+              const rawText = entry.notifyText || 'Ваше отношение с "{{target}}" стало {{value}}.';
+              const extraVars = {
+                target: { type: 'text', value: target },
+                value: { type: 'number', value },
+              };
+              const text = this.interp(rawText, { ...this.templateVars(session), ...extraVars }, chatId, node.id);
+              await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });
+            }
           }
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;

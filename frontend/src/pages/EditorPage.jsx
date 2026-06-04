@@ -1072,7 +1072,7 @@ export default function EditorPage({ user }) {
     try {
       const flow = rfRef.current ? rfRef.current.toObject() : { nodes: nodesRef.current, edges: edgesRef.current };
       const newSnap = { timestamp: new Date().toISOString(), label: null, nodes: deepCopy(flow.nodes), edges: deepCopy(flow.edges) };
-      const newSnaps = [...snapshotsRef.current, newSnap];
+      const newSnaps = [...snapshotsRef.current, newSnap].slice(-50);
       await saveBot(id, { name: botNameRef.current, nodes: flow.nodes, edges: flow.edges, snapshots: newSnaps, lore: botLoreRef.current });
       setSnapshots(newSnaps);
       setSaved(true);

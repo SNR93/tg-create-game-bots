@@ -203,6 +203,9 @@ export function useSimulator(nodes, edges, initVars) {
         dynamic[`inventory.my.${itemKey}`] = { type: 'text', value: `${itemKey} x${amount}` };
         dynamic[`inventory.my.amount.${itemKey}`] = { type: 'number', value: amount };
       });
+      Object.entries(relations).forEach(([relKey, value]) => {
+        dynamic[`reputation.${relKey}`] = { type: 'number', value };
+      });
       achievementList.forEach(key => {
         const meta = achievementMeta[key] || {};
         const title = meta.title || key;
@@ -461,12 +464,25 @@ export function useSimulator(nodes, edges, initVars) {
 
         case 'relationNode':
           for (const entry of node.data.entries || []) {
-            if (!entry.characterKey) continue;
-            const current = relations[entry.characterKey] || 0;
-            if (entry.action === 'set') relations[entry.characterKey] = +entry.value || 0;
-            if (entry.action === 'add') relations[entry.characterKey] = current + (+entry.value || 0);
-            if (entry.action === 'subtract') relations[entry.characterKey] = current - (+entry.value || 0);
-            pushLog({ kind: 'var', nodeId, msg: `♥ ${entry.characterKey}: ${relations[entry.characterKey]}` });
+            const rKey = (entry.reputationType && entry.reputationTarget)
+              ? `${entry.reputationType}.${entry.reputationTarget}`
+              : (entry.characterKey || '');
+            if (!rKey) continue;
+            const current = relations[rKey] || 0;
+            if (entry.action === 'set') relations[rKey] = +entry.value || 0;
+            if (entry.action === 'add') relations[rKey] = current + (+entry.value || 0);
+            if (entry.action === 'subtract') relations[rKey] = current - (+entry.value || 0);
+            pushLog({ kind: 'var', nodeId, msg: `♥ reputation.${rKey}: ${relations[rKey]}` });
+            if (entry.notify) {
+              const target = entry.reputationTarget || entry.characterKey || rKey;
+              const rawText = entry.notifyText || 'Ваше отношение с "{{target}}" стало {{value}}.';
+              const extraVars = {
+                target: { type: 'text', value: target },
+                value: { type: 'number', value: relations[rKey] },
+              };
+              const text = interpolate(rawText, { ...templateVars(), ...extraVars });
+              pushMsg({ from: 'bot', type: 'text', text });
+            }
           }
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;

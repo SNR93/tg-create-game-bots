@@ -139,7 +139,7 @@ function renderSection(section, query) {
       <h3 style={s.h3}><H text="Глобальные переменные" /></h3>
       <p><H text="Нода «Глобальные переменные» изменяет переменные, общие для всех игроков (счётчики событий, флаги сезона и т.д.). Доступны в ветвлении через источник «Глоб. переменная»." /></p>
       <SystemPlaceholderList query={q} />
-      <Note><H text="Дополнительные системные плейсхолдеры: {{inventory.my.Предмет}} — «Предмет x5», {{inventory.my.amount.Предмет}} — количество. {{achievement.Ключ}} — название достижения. {{codex.ключ}} — текст записи кодекса (пусто, если не открыта)." /></Note>
+      <Note><H text="Дополнительные системные плейсхолдеры: {{reputation.person.Имя}} / {{reputation.guild.Имя}} / {{reputation.city.Имя}} и др. — числовое значение репутации. {{inventory.my.Предмет}} — «Предмет x5», {{inventory.my.amount.Предмет}} — количество. {{achievement.Ключ}} — название достижения. {{codex.ключ}} — текст записи кодекса (пусто, если не открыта)." /></Note>
       <h3 style={s.h3}><H text="Аргументы команды" /></h3>
       <p><H text="Внутри ветки «Своя команда» доступны плейсхолдеры command.args (строка целиком), command.arg1, command.arg2 и т.д. Вне этой ветки они пусты." /></p>
     </>
@@ -232,10 +232,15 @@ function renderSection(section, query) {
         <li><H text="Плейсхолдеры: {{inventory.my.Предмет}} → «Предмет x5», {{inventory.my.amount.Предмет}} → количество числом." /></li>
         <li><H text="Количество ≤ 0 удаляет запись из инвентаря." /></li>
       </ul>
-      <h3 style={s.h3}><H text="Отношения" /></h3>
+      <h3 style={s.h3}><H text="Репутация и отношения" /></h3>
       <ul style={s.ul}>
-        <li><H text="Числовой показатель с персонажем (Доверие_Алисы, Репутация_гильдии)." /></li>
-        <li><H text="Проверяется в условиях через источник «Отношения», операторы > < >= <= == !=." /></li>
+        <li><H text="Числовой показатель с персонажем, гильдией, городом, фракцией, организацией, регионом или божеством." /></li>
+        <li><H text="В ноде выбирается тип (Персонаж / Гильдия / Город / ...) и название объекта." /></li>
+        <li><H text="Плейсхолдер: {{reputation.person.Харбек Крепкоплечий}}, {{reputation.guild.Стальная Длань}}, {{reputation.city.Вархейм}}, {{reputation.faction.Орден Рассвета}} и т.д." /></li>
+        <li><H text="Ключ для «Проверки условий» — полный вид: person.Харбек Крепкоплечий (источник «Отношения»)." /></li>
+        <li><H text="Операторы проверки: > < >= <= == !=." /></li>
+        <li><H text="Можно включить уведомление игрока при изменении. Доступны {{target}} (название) и {{value}} (новое значение)." /></li>
+        <li><H text="Дефолтный текст уведомления: «Ваше отношение с &quot;{{target}}&quot; стало {{value}}.»" /></li>
       </ul>
       <h3 style={s.h3}><H text="Достижения" /></h3>
       <ul style={s.ul}>
@@ -514,6 +519,11 @@ function SystemPlaceholderList({ query = '' }) {
           <code style={s.placeholderCode}><Highlight text="{{codex.ключ}}" query={query} /></code>
           <span style={s.placeholderDash}>—</span>
           <span style={s.placeholderDesc}><Highlight text="Текст записи кодекса, если игрок уже открыл её. До открытия — пустая строка." query={query} /></span>
+        </div>
+        <div style={s.placeholderRow}>
+          <code style={s.placeholderCode}><Highlight text="{{reputation.person.Имя}}" query={query} /></code>
+          <span style={s.placeholderDash}>—</span>
+          <span style={s.placeholderDesc}><Highlight text="Репутация с персонажем. Тип: person, guild, city, faction, organization, region, deity." query={query} /></span>
         </div>
         <div style={s.placeholderRow}>
           <code style={s.placeholderCode}><Highlight text="{{inventory.my.Предмет}}" query={query} /></code>

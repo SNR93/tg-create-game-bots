@@ -134,7 +134,7 @@ function CondRow({ cond, botVariables, onPatch, onDel }) {
       {/* Key input (autocomplete for variables) */}
       <div style={{ position: 'relative', marginBottom: 5 }}>
         <input style={s.condInp} value={key}
-          placeholder={source === 'inventory' ? '🎒 Предмет...' : source === 'relation' ? '♥ Персонаж...' : source === 'achievement' ? '🏆 Ключ достижения...' : '🔍 Имя переменной...'}
+          placeholder={source === 'inventory' ? '🎒 Предмет...' : source === 'relation' ? '♥ person.Имя / guild.Гильдия...' : source === 'achievement' ? '🏆 Ключ достижения...' : '🔍 Имя переменной...'}
           onFocus={() => setSearchOpen(true)}
           onBlur={() => setTimeout(() => setSearchOpen(false), 120)}
           onChange={e => { setSearchOpen(true); onPatch({ key: e.target.value, varName: e.target.value }); }}
