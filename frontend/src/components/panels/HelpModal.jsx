@@ -243,7 +243,9 @@ function renderSection(section, query) {
         <li><H text="Повторный вызов не создаёт дубликат." /></li>
         <li><H text="Нода может выдавать награды: предметы и переменные." /></li>
         <li><H text="{{achievements.unlocked}} — открытых у игрока, {{achievements.total}} — всего в сценарии." /></li>
-        <li><H text="Нода «Достижения» показывает прогресс в виде сообщения." /></li>
+        <li><H text="{{achievements.list}} — список названий разблокированных достижений (каждое с «—», через перенос строки)." /></li>
+        <li><H text="{{achievements.text.ключ}} — название конкретного достижения. Доступно всегда, независимо от того, получено оно или нет." /></li>
+        <li><H text="Нода «Достижения» показывает прогресс и список разблокированных достижений." /></li>
       </ul>
       <h3 style={s.h3}><H text="Промокоды" /></h3>
       <ul style={s.ul}>
@@ -266,9 +268,12 @@ function renderSection(section, query) {
       </ul>
       <h3 style={s.h3}><H text="Кодекс" /></h3>
       <ul style={s.ul}>
-        <li><H text="Нода «Кодекс» открывает запись энциклопедии. Ключ указывается без префикса codex. — он добавляется автоматически." /></li>
-        <li><H text="{{codex.ключ}} подставляет текст записи, если игрок её уже открыл. До открытия возвращает пустую строку." /></li>
-        <li><H text="Статус открытия проверяется в условиях через источник «Переменная», имя codex.ключ." /></li>
+        <li><H text="Нода «Кодекс» — только определение записи (ключ + текст). При прохождении ничего не делает и не разблокирует запись." /></li>
+        <li><H text="Нода «Разблокировать кодекс» — единственный способ открыть (true) или закрыть (false) запись для игрока. При открытии отправляет настраиваемое сообщение (по умолчанию «Кодекс обновлен»)." /></li>
+        <li><H text="Нода «Редактировать кодекс» — обновляет текст записи без изменения статуса блокировки." /></li>
+        <li><H text="{{codex.ключ}} подставляет текст записи, если она разблокирована. До открытия — пустая строка." /></li>
+        <li><H text="Статус проверяется в условиях через источник «Переменная», имя codex.ключ (значение boolean)." /></li>
+        <li><H text="Ключ указывается без префикса codex. — он добавляется автоматически." /></li>
       </ul>
     </>
   );
@@ -387,6 +392,7 @@ function renderSection(section, query) {
         <li><H text="Rollout % — процент игроков, которые получат новую версию. При 100% все старые версии архивируются." /></li>
         <li><H text="Распределение детерминировано: игрок всегда получает ту же версию (не меняется между сессиями)." /></li>
         <li><H text="Старые игроки со старой версией не переключаются автоматически — только при публикации 100%." /></li>
+        <li><H text="Хранится не более 50 архивных версий на бота — старые удаляются автоматически при создании новой. Опубликованные версии не затрагиваются." /></li>
       </ul>
       <h3 style={s.h3}><H text="Резервные копии" /></h3>
       <ul style={s.ul}>
@@ -414,7 +420,7 @@ function renderSection(section, query) {
         ['editor', 'Редактирование сценария и запуск бота'],
         ['viewer', 'Только просмотр'],
       ]} query={q} />
-      <Note><H text="Аккаунт по умолчанию: admin / changethispassword. Пользователи admin и SNR93 имеют право создавать, редактировать и удалять аккаунты других пользователей." /></Note>
+      <Note><H text="Учётные данные задаются через переменную окружения AUTH_USERS в формате login:password,second:password. Пользователь с ролью owner может управлять доступом других участников." /></Note>
     </>
   );
 
@@ -522,7 +528,17 @@ function SystemPlaceholderList({ query = '' }) {
         <div style={s.placeholderRow}>
           <code style={s.placeholderCode}><Highlight text="{{achievement.Ключ}}" query={query} /></code>
           <span style={s.placeholderDash}>—</span>
-          <span style={s.placeholderDesc}><Highlight text="Название достижения и ссылка на картинку (если задана)." query={query} /></span>
+          <span style={s.placeholderDesc}><Highlight text="Название разблокированного достижения (только если получено)." query={query} /></span>
+        </div>
+        <div style={s.placeholderRow}>
+          <code style={s.placeholderCode}><Highlight text="{{achievements.list}}" query={query} /></code>
+          <span style={s.placeholderDash}>—</span>
+          <span style={s.placeholderDesc}><Highlight text="Список названий всех разблокированных достижений игрока (каждое с «—», через перенос строки)." query={query} /></span>
+        </div>
+        <div style={s.placeholderRow}>
+          <code style={s.placeholderCode}><Highlight text="{{achievements.text.ключ}}" query={query} /></code>
+          <span style={s.placeholderDash}>—</span>
+          <span style={s.placeholderDesc}><Highlight text="Название конкретного достижения. Доступно всегда, независимо от получения." query={query} /></span>
         </div>
         <div style={s.placeholderRow}>
           <code style={s.placeholderCode}><Highlight text="{{command.args}}" query={query} /></code>
