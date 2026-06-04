@@ -785,11 +785,9 @@ export default function EditorPage({ user }) {
     };
   }, []);
 
-  const isValidConnection = useCallback((params) => {
-    // Reject connections where the "source" is actually a target-only handle ('in')
-    if ((params.sourceHandle ?? '') === 'in') return false;
-    return canConnectFrom(edgesRef.current, nodesRef.current, params.source, params.sourceHandle);
-  }, []);
+  const isValidConnection = useCallback((params) =>
+    canConnectFrom(edgesRef.current, nodesRef.current, params.source, params.sourceHandle)
+  , []);
 
   // KEY FIX: do NOT use onPaneClick to close contextMenu — it fires after onConnectEnd
   const onConnectEnd = useCallback((event) => {
