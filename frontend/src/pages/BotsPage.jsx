@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { changePassword, createBot, createUser, deleteBot, deleteUser, getProfile, listBots, listUsers, updateBotComment, updateProfile, updateUser } from '../api';
+import { changePassword, createBot, createUser, deleteBot, deleteUser, getProfile, listBots, listUsers, updateBotComment, updateProfile, updateUser, uploadProfileAvatar } from '../api';
 
 export default function BotsPage({ user, onLogout }) {
   const [bots, setBots] = useState([]);
@@ -172,6 +172,8 @@ function ProfileModal({ onClose }) {
   const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '' });
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     getProfile().then(data => {
@@ -179,6 +181,22 @@ function ProfileModal({ onClose }) {
       setForm({ avatar: data.avatar || '', about: data.about || '' });
     }).catch(error => setError(error.message));
   }, []);
+
+  async function handleAvatarFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      const res = await uploadProfileAvatar(file);
+      setForm(v => ({ ...v, avatar: res.url }));
+      setStatus('Аватар загружен — нажмите «Сохранить профиль»');
+    } catch (err) {
+      setError(err.message);
+    }
+    setUploading(false);
+    e.target.value = '';
+  }
 
   async function saveProfile() {
     setError('');
@@ -208,8 +226,31 @@ function ProfileModal({ onClose }) {
           </div>
           <button style={styles.modalClose} onClick={onClose}>×</button>
         </div>
-        {profile?.avatar && <img src={profile.avatar} alt="" style={styles.avatarPreview} />}
-        <input style={styles.input} placeholder="URL аватара" value={form.avatar} onChange={e => setForm(v => ({ ...v, avatar: e.target.value }))} />
+        {form.avatar && <img src={form.avatar} alt="" style={styles.avatarPreview} />}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'stretch', marginBottom: 0 }}>
+          <input
+            style={{ ...styles.input, flex: 1, marginBottom: 0 }}
+            placeholder="URL аватара"
+            value={form.avatar}
+            onChange={e => setForm(v => ({ ...v, avatar: e.target.value }))}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+            style={{ display: 'none' }}
+            onChange={handleAvatarFile}
+          />
+          <button
+            style={{ ...styles.btnSecondary, whiteSpace: 'nowrap', flexShrink: 0 }}
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            title="Загрузить с компьютера (PNG, JPG)"
+          >
+            {uploading ? '...' : '📁 Загрузить'}
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8, marginTop: 3 }}>PNG, JPG или JPEG · максимум 5 МБ</div>
         <textarea style={styles.profileText} rows={5} placeholder="О себе" value={form.about} onChange={e => setForm(v => ({ ...v, about: e.target.value }))} />
         <button style={styles.btnCreate} onClick={saveProfile}>Сохранить профиль</button>
         <div style={styles.passwordGrid}>

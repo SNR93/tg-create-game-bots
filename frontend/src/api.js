@@ -201,6 +201,18 @@ export async function restoreTelegramBackup(file) {
   return data;
 }
 
+export async function uploadProfileAvatar(file) {
+  const allowed = ['image/png', 'image/jpeg', 'image/jpg'];
+  if (!allowed.includes(file.type)) throw new Error('Разрешены только PNG и JPG/JPEG файлы');
+  if (file.size > 5 * 1024 * 1024) throw new Error('Файл слишком большой (максимум 5 МБ)');
+  const r = await apiFetch(`${BASE}/profile/avatar`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+  return readJson(r, 'Не удалось загрузить аватар');
+}
+
 export async function uploadBotMedia(id, type, file) {
   const validationError = validateMediaFile(type, file);
   if (validationError) throw new Error(validationError);

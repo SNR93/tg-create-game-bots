@@ -719,6 +719,31 @@ app.put('/api/profile/password', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+const AVATARS_DIR = path.join(MEDIA_DIR, 'avatars');
+
+app.post('/api/profile/avatar', express.raw({ type: ['image/png', 'image/jpeg', 'image/jpg', '*/*'], limit: '5mb' }), asyncRoute(async (req, res) => {
+  const buf = req.body;
+  if (!buf || buf.length < 4) return res.status(400).json({ error: 'Файл пустой' });
+
+  // Validate by magic bytes: PNG = 89 50 4E 47, JPEG = FF D8
+  const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+  const isJpg = buf[0] === 0xFF && buf[1] === 0xD8;
+  if (!isPng && !isJpg) return res.status(400).json({ error: 'Разрешены только PNG и JPG/JPEG файлы' });
+
+  const ext = isPng ? 'png' : 'jpg';
+  if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
+
+  const safeName = req.user.login.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `${safeName}.${ext}`;
+  // Remove old avatar with opposite extension to avoid duplicates
+  const opposite = ext === 'png' ? 'jpg' : 'png';
+  const oldPath = path.join(AVATARS_DIR, `${safeName}.${opposite}`);
+  if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+
+  fs.writeFileSync(path.join(AVATARS_DIR, filename), buf);
+  res.json({ url: `/api/media/avatars/${filename}` });
+}));
+
 app.get('/api/users', requireAuth, requireUserManager, (req, res) => {
   const users = ensureUserStore();
   res.json(Object.values(users).map(userPublic).sort((a, b) => a.login.localeCompare(b.login, 'ru')));
