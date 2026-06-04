@@ -94,20 +94,20 @@ export default function BotsPage({ user, onLogout }) {
           style={styles.input}
           placeholder="Название нового бота"
           value={newName}
-          onChange={e => {
-            setNewName(e.target.value);
-            if (error) setError('');
-          }}
+          onChange={e => { setNewName(e.target.value); if (error) setError(''); }}
           onKeyDown={e => e.key === 'Enter' && handleCreate()}
         />
-        <textarea
-          style={styles.commentInput}
-          placeholder="Комментарий о боте"
-          value={newComment}
-          onChange={e => setNewComment(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleCreate(); }}
-          rows={Math.max(1, Math.ceil((newComment.length || 1) / 70))}
-        />
+        <div style={{ position: 'relative' }}>
+          <input
+            style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: 52 }}
+            placeholder="Комментарий о боте"
+            value={newComment}
+            maxLength={170}
+            onChange={e => setNewComment(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleCreate()}
+          />
+          <span style={styles.charHint}>{newComment.length}/170</span>
+        </div>
         <button style={styles.btnCreate} onClick={handleCreate} disabled={creating}>
           {creating ? 'Создание...' : 'Создать бота'}
         </button>
@@ -115,53 +115,58 @@ export default function BotsPage({ user, onLogout }) {
 
       {error && <div style={styles.error}>{error}</div>}
 
-      <section style={styles.tableWrap}>
-        <div style={styles.tableHeader}>
-          <div>Дата создания</div>
-          <div>Название</div>
-          <div>Кто создал</div>
-          <div>Комментарий о боте</div>
-        </div>
-
-        {sortedBots.length === 0 && (
-          <div style={styles.empty}>Ботов пока нет</div>
-        )}
-
-        {sortedBots.map(bot => (
-          <div key={bot.id} style={styles.row}>
-            <div style={styles.dateCell}>
-              {bot.createdAt ? new Date(bot.createdAt).toLocaleString('ru') : 'Дата неизвестна'}
-            </div>
-            <div style={styles.nameCell}>
-              <button style={styles.botName} onClick={() => navigate(`/editor/${bot.id}`)}>
-                {bot.name}
-              </button>
-              {(user?.login === 'admin' || user?.login === 'SNR93' || bot.createdBy === user?.login) && (
-                <button style={styles.btnDelete} onClick={e => handleDelete(e, bot.id)}>Удалить</button>
-              )}
-            </div>
-            <div style={{ ...styles.createdByCell, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <UserAvatar login={bot.createdBy} size={22} />
-              {bot.createdBy || 'unknown'}
-            </div>
-            <div style={styles.commentCell}>
-              <textarea
-                style={styles.commentArea}
-                value={comments[bot.id] || ''}
-                maxLength={500}
-                rows={Math.max(2, Math.ceil(((comments[bot.id] || '').length || 1) / 58))}
-                placeholder="Добавить комментарий"
-                onChange={e => setComments(prev => ({ ...prev, [bot.id]: e.target.value }))}
-                onBlur={() => handleCommentSave(bot.id)}
-              />
-              <div style={styles.commentMeta}>
-                {commentStatus[bot.id] === 'saving' && 'Сохранение...'}
-                {commentStatus[bot.id] === 'saved' && 'Сохранено'}
-                {commentStatus[bot.id] === 'error' && 'Ошибка'}
+      <section style={styles.cards}>
+        {sortedBots.length === 0 && <div style={styles.empty}>Ботов пока нет</div>}
+        {sortedBots.map(bot => {
+          const commentVal = comments[bot.id] || '';
+          const canDelete = user?.login === 'admin' || user?.login === 'SNR93' || bot.createdBy === user?.login;
+          return (
+            <div key={bot.id} style={styles.card}>
+              {/* Top: name + date + delete */}
+              <div style={styles.cardTop}>
+                <button style={styles.botName} onClick={() => navigate(`/editor/${bot.id}`)}>
+                  {bot.name}
+                </button>
+                <div style={styles.cardTopRight}>
+                  <span style={styles.cardDate}>
+                    {bot.createdAt ? new Date(bot.createdAt).toLocaleString('ru', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                  </span>
+                  {canDelete && (
+                    <button style={styles.btnDelete} onClick={e => handleDelete(e, bot.id)}>Удалить</button>
+                  )}
+                </div>
+              </div>
+              {/* Bottom: creator + comment */}
+              <div style={styles.cardBottom}>
+                <div style={styles.creatorBlock}>
+                  <UserAvatar login={bot.createdBy} size={40} />
+                  <span style={styles.creatorName}>{bot.createdBy || 'unknown'}</span>
+                </div>
+                <div style={styles.commentBlock}>
+                  <textarea
+                    style={styles.commentArea}
+                    value={commentVal}
+                    maxLength={170}
+                    rows={3}
+                    placeholder="Комментарий о боте..."
+                    onChange={e => setComments(prev => ({ ...prev, [bot.id]: e.target.value }))}
+                    onBlur={() => handleCommentSave(bot.id)}
+                  />
+                  <div style={styles.commentFooter}>
+                    <span style={{ color: commentVal.length >= 160 ? '#f87171' : '#475569' }}>
+                      {commentVal.length}/170
+                    </span>
+                    <span style={{ color: commentStatus[bot.id] === 'error' ? '#f87171' : '#475569' }}>
+                      {commentStatus[bot.id] === 'saving' && 'Сохранение...'}
+                      {commentStatus[bot.id] === 'saved' && '✓ Сохранено'}
+                      {commentStatus[bot.id] === 'error' && 'Ошибка'}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </section>
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} onUser={profile => {}} />}
       {showUsers && <UsersModal currentUser={user} onClose={() => setShowUsers(false)} />}
@@ -391,9 +396,19 @@ const styles = {
   },
   createBox: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(180px, 280px) minmax(220px, 1fr) auto',
-    gap: 12,
-    marginBottom: 14,
+    gridTemplateColumns: 'minmax(180px, 260px) 1fr auto',
+    gap: 10,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  charHint: {
+    position: 'absolute',
+    right: 10,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    fontSize: 11,
+    color: '#475569',
+    pointerEvents: 'none',
   },
   input: {
     background: '#1e2030',
@@ -404,19 +419,6 @@ const styles = {
     padding: '11px 14px',
     outline: 'none',
     minWidth: 0,
-  },
-  commentInput: {
-    background: '#1e2030',
-    border: '1px solid #2d3458',
-    borderRadius: 8,
-    color: '#e2e8f0',
-    fontSize: 15,
-    padding: '11px 14px',
-    outline: 'none',
-    minWidth: 0,
-    resize: 'vertical',
-    lineHeight: 1.35,
-    fontFamily: 'inherit',
   },
   btnCreate: {
     background: '#3b82f6',
@@ -444,84 +446,108 @@ const styles = {
     padding: '10px 12px',
     marginBottom: 14,
   },
-  tableWrap: {
-    border: '1px solid #2d3458',
-    borderRadius: 8,
-    overflow: 'hidden',
+  cards: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+  },
+  card: {
     background: '#171925',
+    border: '1px solid #2d3458',
+    borderRadius: 10,
+    overflow: 'hidden',
+    transition: 'border-color 0.15s',
   },
-  tableHeader: {
-    display: 'grid',
-    gridTemplateColumns: '190px minmax(220px, 1fr) 150px minmax(280px, 1.4fr)',
-    gap: 0,
-    background: '#202437',
-    color: '#94a3b8',
-    fontSize: 13,
-    fontWeight: 600,
-    padding: '12px 14px',
+  cardTop: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: '14px 16px 10px',
+    borderBottom: '1px solid #252840',
   },
-  row: {
-    display: 'grid',
-    gridTemplateColumns: '190px minmax(220px, 1fr) 150px minmax(280px, 1.4fr)',
-    gap: 0,
-    alignItems: 'start',
-    borderTop: '1px solid #2d3458',
-    padding: '14px',
-  },
-  dateCell: {
-    color: '#94a3b8',
-    fontSize: 13,
-    lineHeight: 1.4,
-    paddingRight: 14,
-  },
-  nameCell: {
+  cardTopRight: {
     display: 'flex',
     alignItems: 'center',
     gap: 10,
-    minWidth: 0,
-    paddingRight: 14,
+    flexShrink: 0,
+  },
+  cardDate: {
+    color: '#64748b',
+    fontSize: 12,
+    whiteSpace: 'nowrap',
   },
   botName: {
     background: 'transparent',
     border: 'none',
     color: '#bfdbfe',
-    fontSize: 15,
-    fontWeight: 600,
+    fontSize: 16,
+    fontWeight: 700,
     padding: 0,
     textAlign: 'left',
-    overflowWrap: 'anywhere',
+    cursor: 'pointer',
+    letterSpacing: 0.1,
   },
   btnDelete: {
-    background: '#2a1820',
+    background: 'transparent',
     border: '1px solid #7f1d1d',
-    color: '#fecaca',
+    color: '#fca5a5',
     borderRadius: 6,
-    padding: '5px 8px',
+    padding: '4px 10px',
     fontSize: 12,
+    cursor: 'pointer',
     whiteSpace: 'nowrap',
   },
-  createdByCell: {
-    color: '#e2e8f0',
-    fontSize: 14,
-    paddingRight: 14,
-    overflowWrap: 'anywhere',
+  cardBottom: {
+    display: 'grid',
+    gridTemplateColumns: '160px 1fr',
+    gap: 0,
+    minHeight: 90,
   },
-  commentCell: {
-    minWidth: 0,
+  creatorBlock: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: '12px 16px',
+    borderRight: '1px solid #252840',
+    background: '#12131a',
+  },
+  creatorName: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: 600,
+    textAlign: 'center',
+    wordBreak: 'break-all',
+  },
+  commentBlock: {
+    padding: '10px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
   },
   commentArea: {
     width: '100%',
-    minHeight: 58,
-    height: 'auto',
-    resize: 'vertical',
-    background: '#111827',
-    border: '1px solid #2d3458',
-    borderRadius: 8,
-    color: '#e2e8f0',
-    padding: '9px 10px',
+    flex: 1,
+    resize: 'none',
+    background: 'transparent',
+    border: '1px solid transparent',
+    borderRadius: 6,
+    color: '#cbd5e1',
+    padding: '6px 8px',
     fontSize: 14,
-    lineHeight: 1.4,
+    lineHeight: 1.5,
     outline: 'none',
+    fontFamily: 'inherit',
+    boxSizing: 'border-box',
+    transition: 'border-color 0.15s',
+  },
+  commentFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: 11,
+    paddingLeft: 2,
   },
   modalOverlay: { position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(3,6,16,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 },
   modal: { width: 520, maxWidth: '96vw', maxHeight: '90vh', overflowY: 'auto', background: '#171925', border: '1px solid #2d3458', borderRadius: 10, padding: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.55)' },
@@ -542,16 +568,10 @@ const styles = {
   userLogin: { color: '#e2e8f0', fontWeight: 700 },
   userAbout: { color: '#94a3b8', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   smallSelect: { background: '#1e2030', border: '1px solid #2d3458', borderRadius: 6, color: '#e2e8f0', padding: '7px 8px' },
-  commentMeta: {
-    minHeight: 18,
-    marginTop: 4,
-    color: '#94a3b8',
-    fontSize: 12,
-  },
   empty: {
-    color: '#94a3b8',
+    color: '#64748b',
     textAlign: 'center',
-    padding: 42,
-    borderTop: '1px solid #2d3458',
+    padding: '48px 0',
+    fontSize: 15,
   },
 };
