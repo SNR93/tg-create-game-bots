@@ -794,6 +794,14 @@ async function resolveUserBotRole(botId, userLogin) {
   if (specific) return specific.role;
   const all = roles.find(r => r.user_key === '@all');
   if (all) return all.role;
+  // Fall back to checking createdBy in the bot JSON
+  try {
+    const p = getBotPath(botId);
+    if (fs.existsSync(p)) {
+      const bot = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      if (bot.createdBy === userLogin) return 'owner';
+    }
+  } catch {}
   return 'viewer';
 }
 
