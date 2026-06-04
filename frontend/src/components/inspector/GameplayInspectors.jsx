@@ -805,6 +805,7 @@ export function UnlockCodexInspector({ data, onUpdate, nodes = [] }) {
           </div>
           {entry.value !== false && (
             <div style={s.invCardBody}>
+              <div style={s.fieldLabel}>Сообщение при разблокировке</div>
               <PlaceholderField
                 as="textarea"
                 rows={2}
@@ -814,6 +815,7 @@ export function UnlockCodexInspector({ data, onUpdate, nodes = [] }) {
                 style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical', minHeight: 48 }}
                 onChange={e => patch(entry.id, { notifyText: e.target.value })}
               />
+              <div style={s.hint}>Отправляется игроку при разблокировке. Поддерживает {'{{переменные}}'}. Если пусто — отправляется «Кодекс обновлен».</div>
             </div>
           )}
           {entry.codexKey && !codexKeys.includes(entry.codexKey) && (
