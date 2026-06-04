@@ -67,7 +67,7 @@ function evalBranchCond(cond, session) {
     if (!gv) return false;
     actual = gv.value;
   } else {
-    const varData = session.vars?.[resolvedKey];
+    const varData = session.vars?.[resolvedKey] || session.systemVars?.[resolvedKey];
     if (!varData) return false;
     actual = varData.value;
   }
@@ -83,9 +83,19 @@ function evalBranchCond(cond, session) {
   }
 }
 
-function evalButtonCondition(cond, session) {
-  if (!cond?.enabled) return true;
-  return evalBranchCond({ source: cond.source, key: cond.key, operator: cond.operator, value: cond.value }, session);
+function enabledButtonConditions(buttonOrCondition) {
+  if (!buttonOrCondition) return [];
+  if (Array.isArray(buttonOrCondition.conditions) && buttonOrCondition.conditions.length > 0) {
+    return buttonOrCondition.conditions.filter(condition => condition?.enabled);
+  }
+  if (buttonOrCondition.condition?.enabled) return [buttonOrCondition.condition];
+  return buttonOrCondition.enabled ? [buttonOrCondition] : [];
+}
+
+function evalButtonCondition(buttonOrCondition, session) {
+  const conditions = enabledButtonConditions(buttonOrCondition);
+  if (conditions.length === 0) return true;
+  return conditions.every(cond => evalBranchCond({ source: cond.source, key: cond.key, operator: cond.operator, value: cond.value }, session));
 }
 
 const TYPE_LABEL = { menuNode:'Глобальное меню', settingsNode:'Настройки', customCommandNode:'Своя команда', continueStoryNode:'Продолжить историю', invokeCommandNode:'Вызвать команду', messageChainNode:'Цепочка сообщений', simpleMessageNode:'Сообщение', editMessageNode:'Изменить сообщение', pollNode:'Опрос или тест', stickerNode:'Стикер', locationNode:'Геолокация', mediaNode:'Медиа-подборка', inventoryNode:'Изменить инвентарь', inventoryViewNode:'Инвентарь', formulaNode:'Расчёт чисел', randomNode:'Случайный выбор', checkpointNode:'Контрольная точка', relationNode:'Отношения', achievementNode:'Выдать достижение', achievementsViewNode:'Достижения', promocodeNode:'Промокод', subscenarioNode:'Подсценарий', returnNode:'Возврат', purchaseNode:'Покупка Stars', delayNode:'Задержка', variableNode:'Переменные', textInputNode:'Ввод текста', subscriptionCheckNode:'Проверка подписки', httpRequestNode:'HTTP-запрос', loopNode:'Цикл', breakLoopNode:'Выход из цикла', globalVariableNode:'Глобальные переменные' };
@@ -493,9 +503,9 @@ export function useSimulator(nodes, edges, initVars) {
         }
 
         case 'keyboardNode': {
-          const simSession = { vars: runtimeVarsRef.current, inventory, relations, achievementList, globalVars };
+          const simSession = { vars: runtimeVarsRef.current, systemVars, inventory, relations, achievementList, globalVars };
           const allButtons = node.data.buttons || [];
-          const visibleButtons = allButtons.filter(b => evalButtonCondition(b.condition, simSession));
+          const visibleButtons = allButtons.filter(b => evalButtonCondition(b, simSession));
           const callbackButtons = visibleButtons.filter(b => b.type !== 'url');
           const displayButtons = visibleButtons.map(b => ({ ...b, label: interpolate(b.label, templateVars()) }));
           pushMsg({ from: 'bot', type: 'keyboard', buttons: displayButtons });
@@ -523,7 +533,7 @@ export function useSimulator(nodes, edges, initVars) {
 
         case 'branchingNode': {
           const branches = node.data.branches || [];
-          const simSession = { vars: runtimeVarsRef.current, inventory, relations, achievementList, globalVars };
+          const simSession = { vars: runtimeVarsRef.current, systemVars, inventory, relations, achievementList, globalVars };
           let chosen = null;
           for (const branch of branches) {
             const conds = branch.conditions || [];

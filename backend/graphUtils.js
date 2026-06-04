@@ -50,7 +50,7 @@ function telegramVariables(player, chatId) {
  * Supports sources: variable, inventory, relation, achievement, global.
  *
  * condition = { source, key, operator, value }
- * session   = { vars, inventory, relations, achievementList, globalVars }
+ * session   = { vars, telegramVars, inventory, relations, achievementList, globalVars }
  */
 function branchMatches(condition, session) {
   const { source = 'variable', key, varName, operator, value } = condition;
@@ -74,7 +74,7 @@ function branchMatches(condition, session) {
     actual = gv.value;
   } else {
     // default: player variable
-    const variable = session.vars?.[resolvedKey];
+    const variable = session.vars?.[resolvedKey] || session.telegramVars?.[resolvedKey];
     if (!variable) return false;
     actual = variable.value;
   }
@@ -90,13 +90,23 @@ function branchMatches(condition, session) {
   }
 }
 
+function enabledButtonConditions(buttonOrCondition) {
+  if (!buttonOrCondition) return [];
+  if (Array.isArray(buttonOrCondition.conditions) && buttonOrCondition.conditions.length > 0) {
+    return buttonOrCondition.conditions.filter(condition => condition?.enabled);
+  }
+  if (buttonOrCondition.condition?.enabled) return [buttonOrCondition.condition];
+  return buttonOrCondition.enabled ? [buttonOrCondition] : [];
+}
+
 /**
  * Evaluate whether a keyboard button should be visible.
- * Returns true if no condition is configured or it evaluates to true.
+ * Returns true if no condition is configured. Multiple conditions use AND.
  */
-function evaluateButtonCondition(condition, session) {
-  if (!condition?.enabled) return true;
-  return branchMatches({ source: condition.source, key: condition.key, operator: condition.operator, value: condition.value }, session);
+function evaluateButtonCondition(buttonOrCondition, session) {
+  const conditions = enabledButtonConditions(buttonOrCondition);
+  if (conditions.length === 0) return true;
+  return conditions.every(condition => branchMatches({ source: condition.source, key: condition.key, operator: condition.operator, value: condition.value }, session));
 }
 
 function inventoryMap(items) {

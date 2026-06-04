@@ -4,6 +4,10 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://tgbot:tgbot@localhost:5433/tgbot',
 });
 
+pool.on('error', error => {
+  console.error('PostgreSQL pool connection error:', error.message);
+});
+
 async function initDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS players (

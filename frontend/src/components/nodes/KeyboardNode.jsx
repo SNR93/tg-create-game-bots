@@ -1,6 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Handle, Position, useEdges, useNodes, useUpdateNodeInternals } from '@xyflow/react';
 
+function hasEnabledCondition(button) {
+  if (Array.isArray(button.conditions) && button.conditions.length > 0) {
+    return button.conditions.some(condition => condition?.enabled);
+  }
+  return !!button.condition?.enabled;
+}
+
 export default function KeyboardNode({ id, data, selected }) {
   const edges               = useEdges();
   const nodes               = useNodes();
@@ -77,6 +84,9 @@ export default function KeyboardNode({ id, data, selected }) {
                 borderColor: rUsed ? '#3a3f55' : '#0f172a',
               }} />
 
+            {hasEnabledCondition(btn) && (
+              <span style={s.conditionGear} title="Condition enabled">{'\u2699'}</span>
+            )}
             <span style={s.label}>{btn.label || '…'}</span>
             {lUsed && <span style={s.arrow}>◄</span>}
             {rUsed && <span style={s.arrow}>►</span>}
@@ -124,6 +134,7 @@ const s = {
     display: 'flex', alignItems: 'center', gap: 4,
     padding: '9px 14px', borderBottom: '1px solid #2d3250', minHeight: 38,
   },
+  conditionGear: { color: '#38bdf8', fontSize: 12, lineHeight: 1, flexShrink: 0 },
   label: { flex: 1, fontSize: 13, color: '#cbd5e0' },
   arrow: { fontSize: 9, color: '#38bdf8' },
   hIn: {

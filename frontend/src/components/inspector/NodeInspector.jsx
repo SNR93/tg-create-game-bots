@@ -62,7 +62,7 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onClose, b
         {node.type === 'delayNode'         && <DelayInspector         data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'simpleMessageNode' && <SimpleMessageInspector data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}
         {node.type === 'variableNode'      && <VariableInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} botVariables={allBotVariables} />}
-        {node.type === 'keyboardNode'      && <KeyboardInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
+        {node.type === 'keyboardNode'      && <KeyboardInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} botVariables={allBotVariables || botVariables} placeholderVariables={placeholderVariables} nodes={nodes} />}
         {node.type === 'branchingNode'    && <BranchingInspector    data={node.data} onUpdate={p => onUpdate(node.id, p)} botVariables={botVariables} />}
         {node.type === 'commentNode'      && <CommentInspector      data={node.data} onUpdate={p => onUpdate(node.id, p)} />}
         {node.type === 'mediaNode'        && <MediaInspector        data={node.data} onUpdate={p => onUpdate(node.id, p)} botId={botId} />}

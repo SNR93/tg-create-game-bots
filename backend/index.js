@@ -5,6 +5,7 @@ const { randomUUID } = crypto;
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const { execFile, spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const telegramRuntime = require('./telegramRuntime');
 const { initDatabase, pool } = require('./database');
@@ -17,6 +18,7 @@ const app = express();
 const PORT = 3001;
 const BOTS_DIR = path.join(__dirname, 'data', 'bots');
 const MEDIA_DIR = path.join(__dirname, 'data', 'media');
+const DATABASE_BACKUP_PATH = 'db/tgbot.sql';
 const MAX_NODE_HISTORY = 50;
 const TELEGRAM_BACKUP_SETTINGS_PATH = path.join(__dirname, 'data', 'telegram-backup.json');
 const AUTH_COOKIE = 'tgbot_session';
@@ -32,6 +34,46 @@ const MEDIA_FOLDERS = {
   audio: 'audio',
   document: 'documents',
 };
+
+function execFileBuffer(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, {
+      ...options,
+      encoding: 'buffer',
+      maxBuffer: options.maxBuffer || 1024 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        error.stderr = stderr?.toString('utf-8') || '';
+        return reject(error);
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+function spawnWithInput(command, args, input, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on('data', chunk => stdout.push(chunk));
+    child.stderr.on('data', chunk => stderr.push(chunk));
+    child.on('error', reject);
+    child.on('close', code => {
+      const out = Buffer.concat(stdout);
+      const err = Buffer.concat(stderr);
+      if (code !== 0) {
+        const error = new Error(`${command} exited with code ${code}: ${err.toString('utf-8')}`);
+        error.stdout = out.toString('utf-8');
+        error.stderr = err.toString('utf-8');
+        reject(error);
+      } else {
+        resolve({ stdout: out, stderr: err });
+      }
+    });
+    child.stdin.end(input);
+  });
+}
 
 function parseAuthUsers(value) {
   return Object.fromEntries(String(value || '').split(',').map(pair => {
@@ -138,7 +180,42 @@ function collectFiles(baseDir, archiveRoot) {
   return result;
 }
 
-function createBotsMediaArchive() {
+async function createDatabaseDump() {
+  const databaseUrl = process.env.DATABASE_URL || 'postgresql://tgbot:tgbot@localhost:5433/tgbot';
+  const { stdout } = await execFileBuffer('pg_dump', [
+    '--dbname', databaseUrl,
+    '--format=plain',
+    '--clean',
+    '--if-exists',
+    '--no-owner',
+    '--no-privileges',
+  ]);
+  return stdout;
+}
+
+async function restoreDatabaseDump(dumpBuffer) {
+  const databaseUrl = process.env.DATABASE_URL || 'postgresql://tgbot:tgbot@localhost:5433/tgbot';
+  const prelude = Buffer.from(`
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = current_database()
+  AND pid <> pg_backend_pid();
+`, 'utf-8');
+  await spawnWithInput('psql', [
+    '--dbname', databaseUrl,
+    '--single-transaction',
+    '--set', 'ON_ERROR_STOP=1',
+  ], Buffer.concat([prelude, Buffer.from('\n', 'utf-8'), dumpBuffer]));
+}
+
+function appendTarEntry(chunks, archivePath, data, mtimeMs = Date.now()) {
+  chunks.push(createTarHeader(archivePath, data.length, mtimeMs));
+  chunks.push(data);
+  const padding = (512 - (data.length % 512)) % 512;
+  if (padding) chunks.push(Buffer.alloc(padding));
+}
+
+async function createBotsMediaArchive() {
   const chunks = [];
   const files = [
     ...collectFiles(BOTS_DIR, 'bots'),
@@ -146,11 +223,9 @@ function createBotsMediaArchive() {
   ];
   for (const file of files) {
     const data = fs.readFileSync(file.fullPath);
-    chunks.push(createTarHeader(file.archivePath, data.length, file.stat.mtimeMs));
-    chunks.push(data);
-    const padding = (512 - (data.length % 512)) % 512;
-    if (padding) chunks.push(Buffer.alloc(padding));
+    appendTarEntry(chunks, file.archivePath, data, file.stat.mtimeMs);
   }
+  appendTarEntry(chunks, DATABASE_BACKUP_PATH, await createDatabaseDump());
   chunks.push(Buffer.alloc(1024));
   return zlib.gzipSync(Buffer.concat(chunks), { level: 9 });
 }
@@ -174,7 +249,7 @@ function safeRestorePath(root, relPath) {
   return target;
 }
 
-function restoreBotsMediaArchive(archiveBuffer) {
+async function restoreBotsMediaArchive(archiveBuffer) {
   const tar = zlib.gunzipSync(archiveBuffer);
   const tempRoot = path.join(__dirname, 'data', `.restore-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
   const tempBots = path.join(tempRoot, 'bots');
@@ -183,6 +258,7 @@ function restoreBotsMediaArchive(archiveBuffer) {
   fs.mkdirSync(tempMedia, { recursive: true });
   let offset = 0;
   let files = 0;
+  let databaseDump = null;
   try {
     while (offset + 512 <= tar.length) {
       const header = tar.slice(offset, offset + 512);
@@ -196,6 +272,11 @@ function restoreBotsMediaArchive(archiveBuffer) {
       const data = tar.slice(offset, offset + size);
       offset += size + ((512 - (size % 512)) % 512);
       if (type !== '0' && type !== '\0') continue;
+      if (archivePath === DATABASE_BACKUP_PATH) {
+        databaseDump = Buffer.from(data);
+        files += 1;
+        continue;
+      }
       if (!archivePath.startsWith('bots/') && !archivePath.startsWith('media/')) continue;
       const target = archivePath.startsWith('bots/')
         ? safeRestorePath(tempBots, archivePath.slice(5))
@@ -204,12 +285,15 @@ function restoreBotsMediaArchive(archiveBuffer) {
       fs.writeFileSync(target, data);
       files += 1;
     }
+    if (databaseDump) {
+      await restoreDatabaseDump(databaseDump);
+    }
     fs.rmSync(BOTS_DIR, { recursive: true, force: true });
     fs.rmSync(MEDIA_DIR, { recursive: true, force: true });
     fs.renameSync(tempBots, BOTS_DIR);
     fs.renameSync(tempMedia, MEDIA_DIR);
     fs.rmSync(tempRoot, { recursive: true, force: true });
-    return { files };
+    return { files, databaseRestored: !!databaseDump };
   } catch (error) {
     fs.rmSync(tempRoot, { recursive: true, force: true });
     throw error;
@@ -227,7 +311,7 @@ function moscowNowParts() {
 async function sendTelegramBackup(settings = readTelegramBackupSettings(), reason = 'manual') {
   if (!settings.token) throw new Error('Укажите Telegram-токен для бэкапа.');
   if (!settings.chatId) throw new Error('Укажите Telegram chat ID получателя.');
-  const archive = createBotsMediaArchive();
+  const archive = await createBotsMediaArchive();
   const fileName = `tg-bots-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.tar.gz`;
   const form = new FormData();
   form.append('chat_id', settings.chatId);
@@ -532,11 +616,11 @@ app.post('/api/telegram-backup/send', requireSnr93, asyncRoute(async (req, res) 
   }
 }));
 
-app.post('/api/telegram-backup/restore', requireSnr93, express.raw({ type: '*/*', limit: '500mb' }), (req, res) => {
+app.post('/api/telegram-backup/restore', requireSnr93, express.raw({ type: '*/*', limit: '500mb' }), asyncRoute(async (req, res) => {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: 'Загрузите архив бэкапа' });
-  const result = restoreBotsMediaArchive(req.body);
+  const result = await restoreBotsMediaArchive(req.body);
   res.json({ ok: true, ...result });
-});
+}));
 
 app.get('/api/bots', (req, res) => {
   try {

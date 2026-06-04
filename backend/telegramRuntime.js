@@ -799,7 +799,7 @@ class TelegramRuntime {
 
         case 'keyboardNode': {
           const allButtons = node.data.buttons || [];
-          const visibleButtons = allButtons.filter(btn => evaluateButtonCondition(btn.condition, session));
+          const visibleButtons = allButtons.filter(btn => evaluateButtonCondition(btn, session));
           if (visibleButtons.length === 0) { nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id); break; }
           const hasCallback = visibleButtons.some(b => b.type !== 'url');
           const keyboard = visibleButtons.map(btn =>

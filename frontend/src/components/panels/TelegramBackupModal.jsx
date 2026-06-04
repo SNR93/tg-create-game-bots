@@ -73,9 +73,9 @@ export default function TelegramBackupModal({ onClose }) {
       setError('Выберите архив бэкапа.');
       return;
     }
-    if (!confirm('Восстановить боты и медиа из архива? Текущие боты и медиа будут заменены.')) return;
+    if (!confirm('Восстановить боты, медиа и базу данных из архива? Текущие файлы и данные игроков будут заменены.')) return;
     const result = await run(() => restoreTelegramBackup(file));
-    if (result) setStatus(`Восстановлено файлов: ${result.files}. Обновите список ботов.`);
+    if (result) setStatus(`Восстановлено файлов: ${result.files}. БД: ${result.databaseRestored ? 'восстановлена' : 'нет в архиве'}. Обновите список ботов.`);
   }
 
   return (
@@ -142,6 +142,7 @@ export default function TelegramBackupModal({ onClose }) {
 
         <div style={s.restore}>
           <div style={s.restoreTitle}>Восстановление из бэкапа</div>
+          <div style={s.restoreHint}>Новый архив содержит боты, медиа и дамп PostgreSQL. Старые архивы без дампа восстановят только файлы.</div>
           <input
             style={s.file}
             type="file"
@@ -210,6 +211,7 @@ const s = {
   secondary: { background: '#1e2030', color: '#cbd5e1', border: '1px solid #2d3458', borderRadius: 6, padding: '9px 13px', fontWeight: 700, cursor: 'pointer' },
   restore: { marginTop: 18, paddingTop: 16, borderTop: '1px solid #2d3458', display: 'flex', flexDirection: 'column', gap: 10 },
   restoreTitle: { fontSize: 13, color: '#fbd38d', fontWeight: 800 },
+  restoreHint: { color: '#94a3b8', fontSize: 12, lineHeight: 1.45 },
   file: { color: '#cbd5e1', fontSize: 13 },
   danger: { alignSelf: 'flex-start', background: '#7f1d1d', color: '#fff', border: '1px solid #b91c1c', borderRadius: 6, padding: '9px 13px', fontWeight: 800, cursor: 'pointer' },
   meta: { marginTop: 14, color: '#94a3b8', fontSize: 12, display: 'grid', gap: 5 },
