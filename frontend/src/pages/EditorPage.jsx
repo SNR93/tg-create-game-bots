@@ -661,6 +661,8 @@ export default function EditorPage({ user }) {
   const debounceRef    = useRef(null);
 
   const [myRole, setMyRole] = useState('owner'); // optimistic — restrict after load
+  const canEdit = myRole === 'editor' || myRole === 'owner';
+  const isOwner = myRole === 'owner';
 
   useEffect(() => {
     getBotMyRole(id).then(res => setMyRole(res.role || 'viewer')).catch(() => setMyRole('viewer'));
@@ -1217,9 +1219,6 @@ export default function EditorPage({ user }) {
     setEdges(eds => removeDuplicateConnections([...eds, ...pastedEdges], [...nodesRef.current, ...pasted]));
     return true;
   }
-
-  const canEdit = myRole === 'editor' || myRole === 'owner';
-  const isOwner = myRole === 'owner';
 
   // ── Keyboard (e.code = layout-independent) ─────────────────────
   useEffect(() => {
