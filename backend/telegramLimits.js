@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Backend-правила лимитов Telegram: длины сообщений, подписи, размеры файлов и ограничения типов медиа.
+ * Эти правила защищают runtime от отправки payload, который Telegram отклонит уже во время игры.
+ * Frontend имеет зеркальный файл для ранней проверки в редакторе, но backend остаётся последней линией защиты.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 const { spawnSync } = require('child_process');
 const { randomConfigErrors } = require('./randomUtils');
 
@@ -11,7 +19,10 @@ const TELEGRAM_LIMITS = {
   invoiceDescription: 255,
   pollQuestion: 300,
   pollOption: 100,
-  photoBytes: 10 * MB,
+  inlineKeyboardButtons: 100,
+  imageBytes: 5 * MB,
+  audioBytes: 10 * MB,
+  videoBytes: 50 * MB,
   fileBytes: 50 * MB,
   videoNoteSeconds: 60,
 };
@@ -27,22 +38,34 @@ const SYSTEM_PLACEHOLDER_NAMES = [
   'telegram.mention',
   'achievements.unlocked',
   'achievements.total',
+  'achievements.list',
 ];
 
 function isSystemPlaceholderName(name) {
   const normalized = String(name || '').trim().toLowerCase();
-  return normalized.startsWith('codex.') || SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
+  return normalized.startsWith('codex.')
+    || normalized.startsWith('reputation.')
+    || normalized.startsWith('inventory.')
+    || normalized.startsWith('achievement.')
+    || normalized.startsWith('achievements.text.')
+    || SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
 }
 
 function formatMb(bytes) {
   return `${Math.round(bytes / MB)} MB`;
 }
 
+function mediaMaxBytes(type) {
+  if (['photo', 'image', 'sticker'].includes(type)) return TELEGRAM_LIMITS.imageBytes;
+  if (['audio', 'voice'].includes(type)) return TELEGRAM_LIMITS.audioBytes;
+  return TELEGRAM_LIMITS.videoBytes;
+}
+
 function validateUploadedMedia(type, size, mimeType = '') {
-  const maxBytes = type === 'photo' ? TELEGRAM_LIMITS.photoBytes : TELEGRAM_LIMITS.fileBytes;
+  const maxBytes = mediaMaxBytes(type);
   if (!Number.isFinite(size) || size <= 0) return 'Файл пустой.';
   if (size > maxBytes) {
-    return `Файл слишком большой для Telegram: максимум ${formatMb(maxBytes)} для типа «${type}».`;
+    return `Файл слишком большой: максимум ${formatMb(maxBytes)} для типа «${type}».`;
   }
   if (type === 'photo' && mimeType && !mimeType.startsWith('image/')) {
     return 'Для фотографии выберите изображение.';
@@ -133,8 +156,12 @@ function validateScenario(bot, resolveLocalMediaPath) {
     if (node.type === 'editMessageNode') check(node.data?.text, TELEGRAM_LIMITS.messageText, `${label}, новый текст сообщения`);
     if (node.type === 'pollNode') {
       check(node.data?.question, TELEGRAM_LIMITS.pollQuestion, `${label}, вопрос опроса`);
-      (node.data?.options || []).forEach((option, index) => check(option, TELEGRAM_LIMITS.pollOption, `${label}, вариант опроса ${index + 1}`));
-      if ((node.data?.options || []).filter(Boolean).length < 2 || (node.data?.options || []).filter(Boolean).length > 10) errors.push(`${label}: у опроса должно быть от 2 до 10 вариантов.`);
+      const options = (node.data?.options || []).map(option => typeof option === 'string' ? option : option?.label);
+      options.forEach((option, index) => check(option, TELEGRAM_LIMITS.pollOption, `${label}, вариант опроса ${index + 1}`));
+      if (options.filter(Boolean).length < 2 || options.filter(Boolean).length > 10) errors.push(`${label}: у опроса должно быть от 2 до 10 вариантов.`);
+    }
+    if (node.type === 'keyboardNode' && (node.data?.buttons || []).length > TELEGRAM_LIMITS.inlineKeyboardButtons) {
+      errors.push(`${label}: Telegram допускает не более ${TELEGRAM_LIMITS.inlineKeyboardButtons} inline-кнопок в одной клавиатуре.`);
     }
     if (node.type === 'variableNode') (node.data?.entries || []).forEach(entry => checkVariableName(entry.varName, `${label}, переменная`));
     if (node.type === 'textInputNode') {

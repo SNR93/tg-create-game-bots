@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Frontend-зеркало Telegram-лимитов для мгновенной проверки сценария в редакторе.
+ * Проверки здесь помогают автору увидеть проблему до запуска бота, но backend всё равно валидирует критичные ограничения.
+ * При изменении лимитов синхронизируй этот файл с backend/telegramLimits.js.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import { randomConfigErrors } from './randomUtils';
 
 const MB = 1024 * 1024;
@@ -9,7 +17,10 @@ export const TELEGRAM_LIMITS = {
   invoiceDescription: 255,
   pollQuestion: 300,
   pollOption: 100,
-  photoBytes: 10 * MB,
+  inlineKeyboardButtons: 100,
+  imageBytes: 5 * MB,
+  audioBytes: 10 * MB,
+  videoBytes: 50 * MB,
   fileBytes: 50 * MB,
   videoNoteSeconds: 60,
 };
@@ -33,13 +44,14 @@ export const SYSTEM_PLACEHOLDERS = {
   'telegram.mention': 'Кликабельное упоминание/username или имя пользователя.',
   'achievements.unlocked': 'Количество достижений, открытых игроком.',
   'achievements.total': 'Общее количество достижений в сценарии.',
+  'achievements.list': 'Список открытых достижений, каждое с новой строки.',
 };
 
 export const SYSTEM_PLACEHOLDER_NAMES = Object.keys(SYSTEM_PLACEHOLDERS);
 
 export const SYSTEM_PLACEHOLDER_VARIABLES = Object.fromEntries(
   SYSTEM_PLACEHOLDER_NAMES.map(name => [name, {
-    type: name.startsWith('achievements.') ? 'number' : 'text',
+    type: name === 'achievements.unlocked' || name === 'achievements.total' ? 'number' : 'text',
     defaultValue: ({
       'telegram.id': '123456789',
       'telegram.chat_id': '123456789',
@@ -57,7 +69,12 @@ export const SYSTEM_PLACEHOLDER_VARIABLES = Object.fromEntries(
 
 export function isSystemPlaceholderName(name) {
   const normalized = String(name || '').trim().toLowerCase();
-  return normalized.startsWith('codex.') || SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
+  return normalized.startsWith('codex.')
+    || normalized.startsWith('reputation.')
+    || normalized.startsWith('inventory.')
+    || normalized.startsWith('achievement.')
+    || normalized.startsWith('achievements.text.')
+    || SYSTEM_PLACEHOLDER_NAMES.some(item => item.toLowerCase() === normalized);
 }
 
 export function formatFileSize(bytes) {
@@ -65,17 +82,23 @@ export function formatFileSize(bytes) {
   return `${Math.round(bytes / MB)} MB`;
 }
 
+function mediaMaxBytes(type) {
+  if (['photo', 'image', 'sticker'].includes(type)) return TELEGRAM_LIMITS.imageBytes;
+  if (['audio', 'voice'].includes(type)) return TELEGRAM_LIMITS.audioBytes;
+  return TELEGRAM_LIMITS.videoBytes;
+}
+
 export function mediaRuleText(type, asVideoNote = false) {
-  if (type === 'photo') return 'Telegram: изображение до 10 MB.';
-  if (type === 'video' && asVideoNote) return 'Telegram: MP4 до 50 MB, для кружка длительность не более 60 сек.';
-  if (type === 'video') return 'Telegram: MP4 до 50 MB. Отдельного лимита длительности нет.';
-  if (type === 'voice' || type === 'audio') return 'Telegram: аудиофайл до 50 MB. Отдельного лимита длительности нет.';
-  return 'Telegram: файл до 50 MB.';
+  if (type === 'photo') return 'Изображение до 5 MB.';
+  if (type === 'video' && asVideoNote) return 'MP4 до 50 MB, для кружка длительность не более 60 сек.';
+  if (type === 'video') return 'MP4 до 50 MB.';
+  if (type === 'voice' || type === 'audio') return 'Аудиофайл до 10 MB.';
+  return 'Файл до 50 MB.';
 }
 
 export function validateMediaFile(type, file) {
   if (!file) return '';
-  const maxBytes = type === 'photo' ? TELEGRAM_LIMITS.photoBytes : TELEGRAM_LIMITS.fileBytes;
+  const maxBytes = mediaMaxBytes(type);
   if (file.size > maxBytes) {
     return `Файл «${file.name}» слишком большой: ${formatFileSize(file.size)}. Максимум ${formatFileSize(maxBytes)}.`;
   }
@@ -123,8 +146,12 @@ export function validateScenarioText(nodes) {
     if (node.type === 'editMessageNode') check(node.data.text, TELEGRAM_LIMITS.messageText, `${label}, новый текст сообщения`);
     if (node.type === 'pollNode') {
       check(node.data.question, TELEGRAM_LIMITS.pollQuestion, `${label}, вопрос опроса`);
-      (node.data.options || []).forEach((option, index) => check(option, TELEGRAM_LIMITS.pollOption, `${label}, вариант опроса ${index + 1}`));
-      if ((node.data.options || []).filter(Boolean).length < 2 || (node.data.options || []).filter(Boolean).length > 10) issues.push(`Ошибка: ${label}: у опроса должно быть от 2 до 10 вариантов.`);
+      const options = (node.data.options || []).map(option => typeof option === 'string' ? option : option?.label);
+      options.forEach((option, index) => check(option, TELEGRAM_LIMITS.pollOption, `${label}, вариант опроса ${index + 1}`));
+      if (options.filter(Boolean).length < 2 || options.filter(Boolean).length > 10) issues.push(`Ошибка: ${label}: у опроса должно быть от 2 до 10 вариантов.`);
+    }
+    if (node.type === 'keyboardNode' && (node.data.buttons || []).length > TELEGRAM_LIMITS.inlineKeyboardButtons) {
+      issues.push(`Ошибка: ${label}: Telegram допускает не более ${TELEGRAM_LIMITS.inlineKeyboardButtons} inline-кнопок в одной клавиатуре.`);
     }
     if (node.type === 'variableNode') (node.data.entries || []).forEach(entry => checkVariableName(entry.varName, `${label}, переменная`));
     if (node.type === 'textInputNode') {

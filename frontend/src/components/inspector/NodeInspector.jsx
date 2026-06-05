@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Инспектор настроек NodeInspector: форма редактирования data для выбранной ноды.
+ * Инспектор не должен напрямую сохранять бота на сервер: он меняет локальное состояние редактора, а сохранение делает страница редактора.
+ * При добавлении полей нужно обновлять defaults, визуальную ноду, симулятор/runtime и проверки сценария.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useState } from 'react';
 import MessageChainInspector from './MessageChainInspector';
 import StartInspector from './StartInspector';
@@ -14,7 +22,7 @@ import GroupInspector from './GroupInspector';
 import NodeHelp from './NodeHelp';
 import { PlaceholderProvider } from './PlaceholderField';
 import { getNodeMeta } from '../nodes/nodeCatalog';
-import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CheckpointInspector, CodexInspector, EditCodexInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, ReputationStatusInspector, ResetProgressInspector, ReturnInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector, UnlockCodexInspector } from './GameplayInspectors';
+import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CodexInspector, EditCodexInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, ReputationStatusInspector, ResetProgressInspector, ReturnInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector, UnlockCodexInspector } from './GameplayInspectors';
 import NodeHistoryPanel from './NodeHistoryPanel';
 
 function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placeholderVariables, botId, nodes, onRenameVariable }) {
@@ -37,8 +45,7 @@ function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placehol
       {node.type === 'inventoryViewNode' && <InventoryViewInspector data={node.data} onUpdate={p => upd(node.id, p)} />}
       {node.type === 'formulaNode'      && <FormulaInspector      data={node.data} onUpdate={p => upd(node.id, p)} botVariables={botVariables} />}
       {node.type === 'randomNode'       && <RandomInspector       data={node.data} onUpdate={p => upd(node.id, p)} />}
-      {node.type === 'checkpointNode'   && <CheckpointInspector   data={node.data} onUpdate={p => upd(node.id, p)} />}
-      {node.type === 'resetProgressNode' && <ResetProgressInspector data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables || botVariables} />}
+{node.type === 'resetProgressNode' && <ResetProgressInspector data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables || botVariables} />}
       {node.type === 'relationNode'     && <RelationInspector     data={node.data} onUpdate={p => upd(node.id, p)} />}
       {node.type === 'achievementNode'  && <AchievementInspector  data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables || botVariables} />}
       {node.type === 'achievementsViewNode' && <AchievementsViewInspector data={node.data} onUpdate={p => upd(node.id, p)} />}

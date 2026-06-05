@@ -1,10 +1,18 @@
+/**
+ * Codex developer notes:
+ * Инспектор настроек VariableInspector: форма редактирования data для выбранной ноды.
+ * Инспектор не должен напрямую сохранять бота на сервер: он меняет локальное состояние редактора, а сохранение делает страница редактора.
+ * При добавлении полей нужно обновлять defaults, визуальную ноду, симулятор/runtime и проверки сценария.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import CountedInput from './CountedInput';
 import { EDITOR_LIMITS, isSystemPlaceholderName } from '../../telegramLimits';
 
-const ACTIONS_BOOL = [['set','= Установить']];
-const ACTIONS_NUM  = [['set','= Установить'],['increment','+ Прибавить'],['decrement','− Вычесть']];
+const ACTIONS_BOOL = [['set','= Установить'],['init','= Задать если не задана']];
+const ACTIONS_NUM  = [['set','= Установить'],['increment','+ Прибавить'],['decrement','− Вычесть'],['init','= Задать если не задана']];
 
 function EmptyEntry(type = 'boolean') {
   return { id: uuidv4(), varName: '', varType: type, action: 'set', value: type === 'number' ? 0 : (type === 'text' ? '' : false) };

@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Страница BotsPage: крупный экран приложения, который собирает API-вызовы, состояние и дочерние компоненты.
+ * Страницы отвечают за пользовательский workflow целиком, а мелкая логика должна уходить в компоненты, хуки и API-клиент.
+ * При изменениях проверяй не только визуальное состояние, но и сохранение данных на backend.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { changePassword, createBot, createUser, deleteBot, deleteUser, getProfile, getUserPublic, listBots, listUsers, updateBotComment, updateProfile, updateUser, uploadProfileAvatar } from '../api';

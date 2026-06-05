@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Визуальное представление ноды SimpleMessageNode на холсте React Flow.
+ * Компонент должен показывать автору сценария суть ноды и ключевые настройки, не выполняя игровую backend-логику.
+ * Данные приходят через data/style/selected; изменения формы data должны быть синхронизированы с инспектором и runtime.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React from 'react';
 import { Handle, Position, useEdges, useNodeId } from '@xyflow/react';
 
@@ -22,7 +30,7 @@ export default function SimpleMessageNode({ data, selected }) {
       <Handle type="target" position={Position.Left} id="in" style={{ ...s.hi, top: 17, transform: 'none' }} />
       <div style={s.header}>
         <span style={s.icon}>💬</span>
-        <span style={s.label}>Простое сообщение</span>
+        <span style={s.label}>{data.title || 'Сообщение'}</span>
       </div>
       <div style={s.preview}>
         {data.protected && <span style={s.lock} title="Защищённый контент">🔒</span>}
@@ -54,13 +62,13 @@ export default function SimpleMessageNode({ data, selected }) {
   );
 }
 const s = {
-  wrap: { background: '#2a2d3e', borderRadius: 10, minWidth: 210, overflow: 'visible', transition: 'border-color .15s,box-shadow .15s' },
+  wrap: { background: '#2a2d3e', borderRadius: 10, width: 240, maxWidth: 240, overflow: 'visible', transition: 'border-color .15s,box-shadow .15s', boxSizing: 'border-box' },
   header: { display: 'flex', alignItems: 'center', gap: 7, padding: '9px 14px 7px', borderBottom: '1px solid #3a3f55' },
   icon: { fontSize: 13 }, label: { fontSize: 13, fontWeight: 600, color: '#e2e8f0', flex: 1 },
   lock: { fontSize: 12, filter: 'sepia(1) saturate(3) hue-rotate(10deg)', flexShrink: 0 },
-  preview: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', minHeight: 34 },
+  preview: { display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 14px', minHeight: 34 },
   typeIcon: { fontSize: 14, flexShrink: 0 },
-  text: { fontSize: 12, color: '#a0aec0', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 },
+  text: { fontSize: 12, color: '#a0aec0', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1, minWidth: 0, overflowWrap: 'anywhere' },
   cont: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 14px', borderTop: '1px solid #3a3f55', position: 'relative' },
   contLabel: { fontSize: 12, color: '#718096' },
   hi: { background: '#38bdf8', border: '2px solid #0f172a', width: 12, height: 12, left: -6 },

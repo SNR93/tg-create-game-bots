@@ -1,3 +1,9 @@
+# Codex developer notes:
+# Docker Compose-описание всего приложения: PostgreSQL, Redis, backend API и nginx/frontend.
+# Здесь особенно важно не удалять volume PostgreSQL и папку backend/data: в них живут прогресс игроков, сценарии, медиа и Telegram-конфиги.
+# При обновлении обычно достаточно пересобрать только изменившийся сервис через docker compose up -d --no-deps <service>.
+# Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+
 services:
   postgres:
     image: postgres:16-alpine

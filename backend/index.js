@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Главный Express-сервер: авторизация, REST API редактора, загрузка медиа, управление ботами, Telegram runtime, админские операции и скачивание JSON.
+ * Файл связывает файловое хранилище сценариев, PostgreSQL, Redis и TelegramRuntime, поэтому любые изменения маршрутов нужно проверять вместе с frontend API-клиентом.
+ * Данные ботов лежат вне контейнера в backend/data; код не должен удалять эту папку при обновлениях.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
@@ -36,6 +44,10 @@ const MEDIA_FOLDERS = {
   document: 'documents',
 };
 
+// Вспомогательные процессы используются для операций, которые нельзя безопасно
+// выполнить чистым JavaScript-кодом: pg_dump/psql для бэкапов базы и упаковка
+// больших файлов. Возвращаем Buffer, чтобы бинарные данные не проходили через
+// случайную строковую перекодировку.
 function execFileBuffer(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, {
@@ -52,6 +64,9 @@ function execFileBuffer(command, args, options = {}) {
   });
 }
 
+// Восстановление базы принимает дамп через stdin. Эта обёртка собирает stdout/stderr
+// полностью, чтобы вызывающий код мог показать понятную ошибку и диагностический
+// вывод внешней команды.
 function spawnWithInput(command, args, input, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -76,6 +91,10 @@ function spawnWithInput(command, args, input, options = {}) {
   });
 }
 
+// Авторизация поддерживает два источника пользователей:
+// 1. AUTH_USERS из окружения — первичный запуск и аварийный доступ.
+// 2. backend/data/users.json — постоянные профили, роли и хеши паролей.
+// Такое объединение сохраняет совместимость со старыми production-инсталляциями.
 function parseAuthUsers(value) {
   return Object.fromEntries(String(value || '').split(',').map(pair => {
     const index = pair.indexOf(':');
@@ -186,6 +205,9 @@ if (!Object.keys(ENV_AUTH_USERS).length) {
   console.warn('AUTH_USERS is empty. File users store is active; default admin account is available.');
 }
 
+// Telegram-бэкап отправляет архив сценариев, медиа и SQL-дамп в заданный чат.
+// Настройки лежат в backend/data, потому что это пользовательская конфигурация,
+// а не часть Docker-образа. При пересборке контейнера она должна сохраниться.
 function readTelegramBackupSettings() {
   try {
     const settings = JSON.parse(fs.readFileSync(TELEGRAM_BACKUP_SETTINGS_PATH, 'utf-8'));
@@ -478,6 +500,13 @@ function safeFileName(value) {
   return cleaned || 'file';
 }
 
+function safeFileNameUnicode(value) {
+  const base = path.basename(String(value || 'sticker'));
+  // Strip null bytes, path separators, control chars, Windows-forbidden chars
+  const cleaned = base.replace(/[\x00-\x1f\x7f/\\:*?"<>|]/g, '_').replace(/^\.+/, '_').trim();
+  return cleaned.slice(0, 200) || 'sticker';
+}
+
 function listBots() {
   const files = fs.readdirSync(BOTS_DIR).filter(f => f.endsWith('.json'));
   return files.map(f => {
@@ -633,7 +662,15 @@ app.post('/api/bots/:id/media/:type', requireAuth, express.raw({ type: '*/*', li
     if (validationError) return res.status(400).json({ error: validationError });
 
     const originalName = decodeURIComponent(req.get('x-file-name') || 'file');
-    const storedName = `${uuidv4()}-${safeFileName(originalName)}`;
+    const stickerNameRaw = req.params.type === 'sticker' ? req.get('x-sticker-name') : null;
+    const stickerName = stickerNameRaw ? decodeURIComponent(stickerNameRaw).trim() : null;
+    let storedName;
+    if (stickerName) {
+      const ext = path.extname(originalName) || '.webp';
+      storedName = safeFileNameUnicode(stickerName.replace(/\.[^.]*$/, '')) + ext;
+    } else {
+      storedName = `${uuidv4()}-${safeFileName(originalName)}`;
+    }
     const targetDir = path.join(MEDIA_DIR, botId, folder);
     fs.mkdirSync(targetDir, { recursive: true });
     const storedPath = path.join(targetDir, storedName);
@@ -650,6 +687,28 @@ app.post('/api/bots/:id/media/:type', requireAuth, express.raw({ type: '*/*', li
       size: req.body.length,
       duration,
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/bots/:id/media/:type — list uploaded files for a given media type
+app.get('/api/bots/:id/media/:type', requireAuth, (req, res) => {
+  try {
+    const botId = safeSegment(req.params.id);
+    const folder = MEDIA_FOLDERS[req.params.type];
+    if (!botId || botId !== req.params.id || !fs.existsSync(getBotPath(botId))) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+    if (!folder) return res.status(400).json({ error: 'Unsupported media type' });
+    const targetDir = path.join(MEDIA_DIR, botId, folder);
+    if (!fs.existsSync(targetDir)) return res.json([]);
+    const files = fs.readdirSync(targetDir).map(name => ({
+      url: `/api/media/${botId}/${folder}/${encodeURIComponent(name)}`,
+      name,
+      stickerName: path.basename(name, path.extname(name)),
+    }));
+    res.json(files);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -811,6 +870,9 @@ app.post('/api/telegram/webhook/:id/:secret', asyncRoute(async (req, res) => {
 }));
 
 // GET /api/bots — list all bots
+// Всё, что ниже, кроме webhook, требует авторизации. Это важная граница
+// безопасности: Telegram должен доставлять update публично, но редактор,
+// админ-панель, скачивание JSON и управление ботами доступны только пользователям.
 app.use('/api', requireAuth);
 
 // ── Bot access control ──────────────────────────────────────────────────────
@@ -818,6 +880,8 @@ app.use('/api', requireAuth);
 const SUPERUSERS = new Set(['admin', 'SNR93']);
 const ROLE_LEVEL = { denied: -1, viewer: 0, editor: 1, owner: 2 };
 
+// Роли проверяются на уровне каждого бота. Создатель бота всегда owner, superuser
+// видит всё, а дополнительные роли хранятся в PostgreSQL через adminStore.
 async function resolveUserBotRole(botId, userLogin) {
   if (SUPERUSERS.has(userLogin)) return 'owner';
   const roles = await adminStore.listRoles(botId);
@@ -896,6 +960,9 @@ app.get('/api/bots', asyncRoute(async (req, res) => {
 }));
 
 // POST /api/bots — create new bot
+// Сценарии ботов хранятся как JSON-файлы в backend/data/bots. Эта папка
+// примонтирована как persistent data и не должна попадать внутрь Docker-образа:
+// иначе обновление контейнера могло бы стереть пользовательские сценарии.
 app.post('/api/bots', (req, res) => {
   try {
     const id = uuidv4();
@@ -983,6 +1050,9 @@ app.put('/api/bots/:id', requireBotRole('editor'), (req, res) => {
   }
 });
 
+// История нод хранится отдельно от основного JSON сценария. Так можно фиксировать
+// комментарии, diff и восстановление конкретной ноды, не раздувая сам файл бота
+// и не меняя runtime-представление сценария.
 // GET /api/bots/:id/history/node/:nodeId — get node history
 app.get('/api/bots/:id/history/node/:nodeId', (req, res) => {
   try {
@@ -1066,7 +1136,9 @@ app.put('/api/bots/:id/comment', requireBotRole('owner'), (req, res) => {
   }
 });
 
-// Admin API: persistent player data stored in PostgreSQL.
+// Админские маршруты ниже идут через playerStore/adminStore. Они намеренно не
+// меняют JSON сценария напрямую: прогресс игроков, промокоды, версии, товары и
+// рассылки живут в PostgreSQL и должны переживать пересборку backend.
 app.get('/api/bots/:id/admin/players', asyncRoute(async (req, res) => {
   if (!botExists(req.params.id)) return res.status(404).json({ error: 'Bot not found' });
   res.json(await playerStore.listPlayers(req.params.id, req.query.q || ''));
@@ -1271,6 +1343,9 @@ app.get('/api/bots/:id/telegram', (req, res) => {
 });
 
 // POST /api/bots/:id/telegram/start — validate token and start long polling
+// Управление Telegram runtime запускает/останавливает только конкретного бота.
+// Токен и режим сохраняются в backend/data/telegram, чтобы после рестарта backend
+// startConfigured() мог восстановить уже включённых Telegram-ботов.
 app.post('/api/bots/:id/telegram/start', async (req, res) => {
   try {
     const p = getBotPath(req.params.id);
@@ -1309,7 +1384,12 @@ app.get('/api/bots/:id/download', (req, res) => {
   const p = getBotPath(req.params.id);
   if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
   const bot = JSON.parse(fs.readFileSync(p, 'utf-8'));
-  res.setHeader('Content-Disposition', `attachment; filename="${bot.name}.json"`);
+  // HTTP-заголовки принимают только ASCII в обычном filename. Русское имя файла
+  // отдаём через RFC 5987 filename*, а filename оставляем безопасным fallback.
+  const filename = `${bot.name || 'bot'}.json`;
+  const fallbackFilename = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\\r\n]/g, '_');
+  const encodedFilename = encodeURIComponent(filename).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  res.setHeader('Content-Disposition', `attachment; filename="${fallbackFilename}"; filename*=UTF-8''${encodedFilename}`);
   res.setHeader('Content-Type', 'application/json');
   res.send(JSON.stringify(bot, null, 2));
 });
@@ -1322,6 +1402,9 @@ app.use((error, req, res, next) => {
   res.status(error.status || 500).json({ error: error.message || 'Internal server error' });
 });
 
+// Подсчёт аудитории рассылки строится SQL-запросом по фильтрам админ-панели.
+// Функция возвращает query/params отдельно, чтобы count и реальная рассылка могли
+// использовать одинаковую выборку игроков без дублирования условий.
 function buildBroadcastQuery(botId, playerIds = [], filters = [], inactiveDays = 0) {
   let query = `SELECT p.chat_id FROM players p WHERE p.bot_id = $1 AND p.chat_id IS NOT NULL AND ($2::text[] = '{}' OR p.telegram_user_id = ANY($2::text[]))`;
   const params = [botId, playerIds];

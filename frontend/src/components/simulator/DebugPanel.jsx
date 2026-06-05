@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Часть встроенного симулятора DebugPanel: проигрывание сценария без реального Telegram-бота.
+ * Симулятор повторяет ключевые правила runtime на frontend, чтобы автор мог быстро проверить ветки и переменные.
+ * При изменении игровой логики важно синхронизировать этот код с backend/telegramRuntime.js.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useEffect, useRef } from 'react';
 
 const KIND_COLOR = { node:'#38bdf8', msg:'#22c55e', delay:'#f6ad55', condition:'#a78bfa', var:'#fb923c', wait:'#718096', done:'#4fd1c5', error:'#ef4444', skip:'#4a5568', notification:'#60a5fa' };

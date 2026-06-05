@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Часть встроенного симулятора VariablePanel: проигрывание сценария без реального Telegram-бота.
+ * Симулятор повторяет ключевые правила runtime на frontend, чтобы автор мог быстро проверить ветки и переменные.
+ * При изменении игровой логики важно синхронизировать этот код с backend/telegramRuntime.js.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React from 'react';
 
 export default function VariablePanel({ runtimeVars, patchVar }) {

@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Слой доступа к данным игроков: переменные, инвентарь, отношения, достижения, события и глобальные переменные бота.
+ * Модуль скрывает SQL от runtime и админ-панели, чтобы игровая логика работала через стабильные функции.
+ * Изменения здесь проверяются особенно аккуратно, потому что они влияют на прогресс игроков.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 const { pool } = require('./database');
 
 function defaultValue(type) {
@@ -13,6 +21,9 @@ function normalizeVariable(variable) {
   };
 }
 
+// ensurePlayer вызывается при первом входе игрока и при административном создании.
+// Функция идемпотентна: повторный /start обновляет профиль и last_seen_at, но не
+// сбрасывает переменные, инвентарь, отношения и достижения игрока.
 async function ensurePlayer(botId, user, chatId, initialVars = {}) {
   const playerId = String(user?.id || chatId);
   await pool.query(`
@@ -39,6 +50,9 @@ async function ensurePlayer(botId, user, chatId, initialVars = {}) {
   return loadPlayer(botId, playerId);
 }
 
+// loadPlayer собирает полную карточку игрока из нескольких таблиц. Runtime и
+// админ-панели удобнее работать с одной структурой, поэтому SQL-детали остаются
+// в этом модуле, а наружу уходит готовый объект.
 async function loadPlayer(botId, playerId) {
   const playerResult = await pool.query(`
     SELECT * FROM players WHERE bot_id = $1 AND telegram_user_id = $2
@@ -80,6 +94,9 @@ async function listPlayers(botId, query = '') {
 }
 
 async function saveVariables(botId, playerId, variables) {
+  // command.* — временные аргументы пользовательских команд; их нельзя сохранять
+  // как постоянный прогресс игрока, иначе следующий запуск команды увидит старые
+  // аргументы.
   for (const [name, variable] of Object.entries(variables || {})) {
     if (name.startsWith('command.')) continue;
     const normalized = normalizeVariable(variable);
@@ -164,6 +181,9 @@ async function setReferrer(botId, playerId, referrerId) {
   `, [botId, String(playerId), String(referrerId)]);
 }
 
+// Награды применяются внутри транзакции вызывающего кода. Это важно для промокодов
+// и Stars-покупок: нельзя увеличить счётчик использования или закрыть покупку,
+// если переменные/инвентарь не обновились целиком.
 async function applyRewards(client, botId, playerId, rewards = {}) {
   for (const [itemKey, spec] of Object.entries(rewards.inventory || {})) {
     const { action, value } = (typeof spec === 'object' && spec !== null) ? spec : { action: 'add', value: spec };
@@ -211,6 +231,8 @@ async function applyRewards(client, botId, playerId, rewards = {}) {
   }
 }
 
+// Промокод блокируется SELECT ... FOR UPDATE, чтобы два параллельных запроса не
+// могли одновременно потратить последний доступный use или выдать награду дважды.
 async function redeemPromocode(botId, playerId, rawCode) {
   const code = String(rawCode || '').trim().toUpperCase();
   const client = await pool.connect();
@@ -256,6 +278,9 @@ async function setCheckpoint(botId, playerId, nodeId) {
   `, [botId, String(playerId), nodeId]);
 }
 
+// Сброс игрока очищает прогресс прохождения и связанные игровые таблицы, а также
+// удаляет отложенные jobs этого игрока. preserveVariables нужен для нод/админки,
+// где часть переменных должна пережить сброс.
 async function resetPlayer(botId, playerId, preserveVariables = {}) {
   const client = await pool.connect();
   const normalizedPlayerId = String(playerId);

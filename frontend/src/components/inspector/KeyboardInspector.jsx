@@ -1,8 +1,16 @@
+/**
+ * Codex developer notes:
+ * Инспектор настроек KeyboardInspector: форма редактирования data для выбранной ноды.
+ * Инспектор не должен напрямую сохранять бота на сервер: он меняет локальное состояние редактора, а сохранение делает страница редактора.
+ * При добавлении полей нужно обновлять defaults, визуальную ноду, симулятор/runtime и проверки сценария.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useMemo, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import PlaceholderField from './PlaceholderField';
 import { BoolButtons } from './VariableInspector';
-import { EDITOR_LIMITS, SYSTEM_PLACEHOLDER_NAMES, isSystemPlaceholderName } from '../../telegramLimits';
+import { EDITOR_LIMITS, TELEGRAM_LIMITS, SYSTEM_PLACEHOLDER_NAMES, isSystemPlaceholderName } from '../../telegramLimits';
 
 const COND_SOURCES = [
   { value: 'variable',    label: 'Переменная' },
@@ -92,13 +100,17 @@ function shouldIncludeSystem(source, value) {
 export default function KeyboardInspector({ data, onUpdate, botVariables = {}, placeholderVariables = {}, nodes = [] }) {
   const buttons = data.buttons || [];
   const timeout = data.timeout || 0;
+  const canAddButton = buttons.length < TELEGRAM_LIMITS.inlineKeyboardButtons;
   const suggestions = useMemo(() => getConditionSuggestions(nodes, botVariables), [nodes, botVariables]);
   const systemNames = useMemo(() => (
     sortedUnique(Object.keys(placeholderVariables || {}).filter(name => isSystemPlaceholderName(name)))
   ), [placeholderVariables]);
 
   function setButtons(list) { onUpdate({ buttons: list }); }
-  function addButton() { setButtons([...buttons, { id: uuidv4(), label: `Вариант ${buttons.length + 1}`, type: 'callback', url: '', condition: emptyCondition() }]); }
+  function addButton() {
+    if (!canAddButton) return;
+    setButtons([...buttons, { id: uuidv4(), label: `Вариант ${buttons.length + 1}`, type: 'callback', url: '', condition: emptyCondition() }]);
+  }
   function patchButton(id, patch) { setButtons(buttons.map(b => b.id === id ? { ...b, ...patch } : b)); }
   function delButton(id) { setButtons(buttons.filter(b => b.id !== id)); }
   function move(id, dir) {
@@ -126,8 +138,8 @@ export default function KeyboardInspector({ data, onUpdate, botVariables = {}, p
         <div style={s.hint}>Текст сообщения перед кнопками. По умолчанию: «Ваш выбор:»</div>
       </Sect>
 
-      <Sect label={`Варианты (${buttons.length})`}>
-        <div style={s.hint}>Callback-кнопки ожидают нажатия. URL-кнопки открывают ссылку (не блокируют сценарий). Если все visible-кнопки скрыты условием — нода пропускается.</div>
+      <Sect label={`Варианты (${buttons.length} / ${TELEGRAM_LIMITS.inlineKeyboardButtons})`}>
+        <div style={s.hint}>Callback-кнопки ожидают нажатия. URL-кнопки открывают ссылку (не блокируют сценарий). Telegram допускает не более {TELEGRAM_LIMITS.inlineKeyboardButtons} inline-кнопок в одной клавиатуре. Если все visible-кнопки скрыты условием — нода пропускается.</div>
         {buttons.length === 0 && <div style={s.empty}>Нет вариантов</div>}
         {buttons.map((btn, i) => (
           <ButtonCard key={btn.id} btn={btn} index={i} total={buttons.length}
@@ -138,7 +150,7 @@ export default function KeyboardInspector({ data, onUpdate, botVariables = {}, p
             onDel={() => delButton(btn.id)}
             onMove={d => move(btn.id, d)} />
         ))}
-        <button style={s.addBtn} onClick={addButton}>+ Добавить вариант</button>
+        <button style={{ ...s.addBtn, opacity: canAddButton ? 1 : 0.45, cursor: canAddButton ? 'pointer' : 'not-allowed' }} disabled={!canAddButton} onClick={addButton}>+ Добавить вариант</button>
       </Sect>
     </div>
   );

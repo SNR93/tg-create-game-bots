@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Визуальное представление ноды ConditionNode на холсте React Flow.
+ * Компонент должен показывать автору сценария суть ноды и ключевые настройки, не выполняя игровую backend-логику.
+ * Данные приходят через data/style/selected; изменения формы data должны быть синхронизированы с инспектором и runtime.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
@@ -14,7 +22,7 @@ export default function ConditionNode({ data, selected }) {
 
       <div style={s.header}>
         <span style={s.icon}>⚡</span>
-        <span style={s.label}>Условие</span>
+        <span style={s.label}>{data.title || 'Проверка текста'}</span>
       </div>
 
       <div style={s.body}>

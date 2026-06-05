@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Страница EditorPage: крупный экран приложения, который собирает API-вызовы, состояние и дочерние компоненты.
+ * Страницы отвечают за пользовательский workflow целиком, а мелкая логика должна уходить в компоненты, хуки и API-клиент.
+ * При изменениях проверяй не только визуальное состояние, но и сохранение данных на backend.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -20,7 +28,7 @@ import CommentNode      from '../components/nodes/CommentNode';
 import MediaNode        from '../components/nodes/MediaNode';
 import GroupNode        from '../components/nodes/GroupNode';
 import { CommandEntryNode, ContinueStoryNode } from '../components/nodes/CommandEntryNode';
-import { AchievementNode, AchievementsViewNode, BreakLoopNode, CheckpointNode, CodexNode, EditCodexNode, EditMessageNode, FormulaNode, GlobalVariableNode, HttpRequestNode, InventoryNode, InventoryViewNode, InvokeCommandNode, LocationNode, LoopNode, PollNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ReputationStatusNode, ResetProgressNode, ReturnNode, StarsShopNode, StickerNode, SubscenarioNode, SubscriptionCheckNode, TextInputNode, UnlockCodexNode } from '../components/nodes/GameplayNodes';
+import { AchievementNode, AchievementsViewNode, BreakLoopNode, CodexNode, EditCodexNode, EditMessageNode, FormulaNode, GlobalVariableNode, HttpRequestNode, InventoryNode, InventoryViewNode, InvokeCommandNode, LocationNode, LoopNode, PollNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ReputationStatusNode, ResetProgressNode, ReturnNode, StarsShopNode, StickerNode, SubscenarioNode, SubscriptionCheckNode, TextInputNode, UnlockCodexNode } from '../components/nodes/GameplayNodes';
 import { NodeDebugContext, withNodeDebug } from '../components/nodes/DebuggableNode';
 import { SYSTEM_PLACEHOLDER_VARIABLES, isSystemPlaceholderName, validateScenarioText } from '../telegramLimits';
 import { getNodeMeta } from '../components/nodes/nodeCatalog';
@@ -43,6 +51,9 @@ import {
 } from '../api';
 
 // ── Node type registry ──────────────────────────────────────────────
+// React Flow получает компоненты нод через этот registry. Ключи должны совпадать
+// с type в JSON сценария; поэтому старые типы вроде applicationNode/conditionNode
+// оставлены для обратной совместимости с уже сохранёнными ботами.
 const nodeTypes = {
   startNode:         withNodeDebug(StartNode),
   applicationNode:   withNodeDebug(ApplicationNode),   // kept for backward compat
@@ -59,8 +70,7 @@ const nodeTypes = {
   inventoryViewNode: withNodeDebug(InventoryViewNode),
   formulaNode:       withNodeDebug(FormulaNode),
   randomNode:        withNodeDebug(RandomNode),
-  checkpointNode:    withNodeDebug(CheckpointNode),
-  resetProgressNode: withNodeDebug(ResetProgressNode),
+resetProgressNode: withNodeDebug(ResetProgressNode),
   menuNode:          withNodeDebug(CommandEntryNode),
   settingsNode:      withNodeDebug(CommandEntryNode),
   customCommandNode: withNodeDebug(CommandEntryNode),
@@ -101,54 +111,67 @@ const COMMENT_EDGE_DEFAULTS = {
   animated: false,
   style: { stroke: '#f6ad55', strokeWidth: 2, strokeDasharray: '6 4' },
   markerEnd: { type: MarkerType.ArrowClosed, color: '#f6ad55', width: 14, height: 14 },
+  interactionWidth: 1,
+  zIndex: 0,
   data: { isComment: true },
 };
 
+// makeDefaultData задаёт стартовую data-структуру для новой ноды. Эти значения
+// должны быть согласованы с инспекторами, визуальными нодами, симулятором и
+// backend runtime: если поле появилось здесь, остальные слои должны его понимать.
 function makeDefaultData(type) {
+  const title = getNodeMeta(type).label;
   switch (type) {
-    case 'applicationNode':  return { title: 'Заявка' };
-    case 'messageChainNode': return { title: 'Цепочка сообщений', messages: [{ id: uuidv4(), type: 'text', text: '', url: '', fileName: '', delay: 0, protected: false, asVideoNote: false }] };
-    case 'conditionNode':    return { condition: 'Текст содержит...', conditionType: 'Текст содержит' };
-    case 'delayNode':        return { amount: 3, unit: 'seconds' };
-    case 'simpleMessageNode':return { type: 'text', text: '', url: '', fileName: '', protected: false, asVideoNote: false };
-    case 'variableNode':     return { entries: [] };
-    case 'keyboardNode':     return { title: 'Клавиатура', buttons: [{ id: uuidv4(), label: 'Вариант 1' }, { id: uuidv4(), label: 'Вариант 2' }] };
-    case 'branchingNode':   return { title: 'Ветвление', branches: [{ id: uuidv4(), label: 'Ветка 1', conditions: [] }, { id: uuidv4(), label: 'Иначе', conditions: [] }] };
-    case 'commentNode':     return { title: 'Комментарий', text: '' };
-    case 'mediaNode':       return { title: 'Медиа', items: [], asAlbum: false };
-    case 'inventoryNode':   return { title: 'Изменить инвентарь', entries: [] };
-    case 'inventoryViewNode': return { title: 'Инвентарь', header: 'Ваш инвентарь:', itemFormat: '{{item}} x{{amount}}', emptyText: 'Инвентарь пуст.' };
-    case 'formulaNode':     return { title: 'Формула', entries: [] };
-    case 'randomNode':      return { title: 'Случайность', rangeMin: 1, rangeMax: 10, branches: [{ id: uuidv4(), label: 'Вариант 1', from: 1, to: 5 }, { id: uuidv4(), label: 'Вариант 2', from: 6, to: 10 }] };
-    case 'checkpointNode':  return { title: 'Чекпоинт' };
-    case 'resetProgressNode': return { title: 'Сброс прогресса', preserveVars: [] };
-    case 'menuNode':        return { title: 'Глобальное меню' };
-    case 'settingsNode':    return { title: 'Настройки' };
-    case 'customCommandNode': return { title: 'Команда', command: '', description: '', aliases: '', showInMenu: true };
-    case 'continueStoryNode': return { title: 'Продолжить историю' };
-    case 'relationNode':    return { title: 'Отношения', entries: [] };
-    case 'achievementNode': return { title: 'Выдать достижение', achievementKey: '', imageUrl: '', notify: true };
-    case 'achievementsViewNode': return { title: 'Достижения', template: 'Достижения: {{achievements.unlocked}} / {{achievements.total}}\n{{achievements.list}}' };
-    case 'promocodeNode':   return { title: 'Промокод', prompt: 'Введите промокод:' };
-    case 'subscenarioNode': return { title: 'Подсценарий', targetNodeId: '' };
-    case 'returnNode':      return { title: 'Возврат' };
-    case 'purchaseNode':          return { title: 'Покупка', productKey: '' };
-    case 'invokeCommandNode':     return { title: 'Вызвать команду', targetNodeId: '', targetTitle: '' };
-    case 'textInputNode':         return { title: 'Ввод текста', prompt: 'Введите ответ:', varName: '', varType: 'text' };
-    case 'editMessageNode':        return { title: 'Изменить сообщение', text: '' };
-    case 'pollNode':               return { title: 'Опрос или тест', question: '', options: ['Вариант 1', 'Вариант 2'], quiz: false, correctOption: 0 };
-    case 'stickerNode':            return { title: 'Стикер', sticker: '' };
-    case 'locationNode':           return { title: 'Геолокация', latitude: 0, longitude: 0 };
-    case 'subscriptionCheckNode': return { title: 'Проверка подписки', channelId: '', prompt: '' };
-    case 'httpRequestNode':       return { title: 'HTTP-запрос', url: '', method: 'GET', headers: '{}', body: '', responsePath: '', responseVar: '', requestTimeout: 5000 };
-    case 'loopNode':              return { title: 'Цикл', maxIterations: 10 };
-    case 'breakLoopNode':         return { title: 'Выход из цикла', targetLoopId: '' };
-    case 'globalVariableNode':    return { title: 'Глобальные переменные', entries: [] };
-    case 'codexNode':             return { title: 'Кодекс', codexKey: '', text: '', showOnUnlock: true };
+    case 'applicationNode':  return { title };
+    case 'messageChainNode': return { title, messages: [{ id: uuidv4(), type: 'text', text: '', url: '', fileName: '', delay: 0, protected: false, asVideoNote: false }] };
+    case 'conditionNode':    return { title, condition: 'Текст содержит...', conditionType: 'Текст содержит' };
+    case 'delayNode':        return { title, amount: 3, unit: 'seconds' };
+    case 'simpleMessageNode':return { title, type: 'text', text: '', url: '', fileName: '', protected: false, asVideoNote: false };
+    case 'variableNode':     return { title, entries: [] };
+    case 'keyboardNode':     return { title, buttons: [{ id: uuidv4(), label: 'Вариант 1' }, { id: uuidv4(), label: 'Вариант 2' }] };
+    case 'branchingNode':   return { title, branches: [{ id: uuidv4(), label: 'Ветка 1', conditions: [] }, { id: uuidv4(), label: 'Иначе', conditions: [] }] };
+    case 'commentNode':     return { title, text: '' };
+    case 'mediaNode':       return { title, items: [], asAlbum: false };
+    case 'inventoryNode':   return { title, entries: [] };
+    case 'inventoryViewNode': return { title, header: 'Ваш инвентарь:', itemFormat: '{{item}} x{{amount}}', emptyText: 'Инвентарь пуст.' };
+    case 'formulaNode':     return { title, entries: [] };
+    case 'randomNode':      return { title, rangeMin: 1, rangeMax: 10, branches: [{ id: uuidv4(), label: 'Вариант 1', from: 1, to: 5 }, { id: uuidv4(), label: 'Вариант 2', from: 6, to: 10 }] };
+case 'resetProgressNode': return { title, preserveVars: [] };
+    case 'menuNode':        return { title };
+    case 'settingsNode':    return { title };
+    case 'customCommandNode': return { title, command: '', description: '', aliases: '', showInMenu: true };
+    case 'continueStoryNode': return { title };
+    case 'relationNode':    return { title, entries: [] };
+    case 'reputationStatusNode': return { title, entries: [] };
+    case 'achievementNode': return { title, achievementKey: '', imageUrl: '', notify: true };
+    case 'achievementsViewNode': return { title, template: 'Достижения: {{achievements.unlocked}} / {{achievements.total}}\n{{achievements.list}}' };
+    case 'promocodeNode':   return { title, prompt: 'Введите промокод:' };
+    case 'starsShopNode':   return { title };
+    case 'subscenarioNode': return { title, targetNodeId: '' };
+    case 'returnNode':      return { title };
+    case 'purchaseNode':          return { title, productKey: '' };
+    case 'invokeCommandNode':     return { title, targetNodeId: '', targetTitle: '' };
+    case 'textInputNode':         return { title, prompt: 'Введите ответ:', varName: '', varType: 'text' };
+    case 'editMessageNode':        return { title, text: '' };
+    case 'pollNode':               return { title, question: '', options: [{ id: uuidv4(), label: 'Вариант 1' }, { id: uuidv4(), label: 'Вариант 2' }], quiz: false, correctOption: 0 };
+    case 'stickerNode':            return { title, sticker: '' };
+    case 'locationNode':           return { title, latitude: 0, longitude: 0 };
+    case 'subscriptionCheckNode': return { title, channelId: '', prompt: '' };
+    case 'httpRequestNode':       return { title, url: '', method: 'GET', headers: '{}', body: '', responsePath: '', responseVar: '', requestTimeout: 5000 };
+    case 'loopNode':              return { title, maxIterations: 10 };
+    case 'breakLoopNode':         return { title, targetLoopId: '' };
+    case 'globalVariableNode':    return { title, entries: [] };
+    case 'unlockCodexNode':       return { title, entries: [] };
+    case 'editCodexNode':         return { title, entries: [] };
+    case 'codexNode':             return { title, codexKey: '', text: '', showOnUnlock: true };
+    case 'groupNode':             return { title };
     default: return {};
   }
 }
 
+// Соединения комментариев визуально отличаются и не участвуют в прохождении
+// сценария. Остальные edge считаются игровыми и ограничиваются одним исходом на
+// конкретный handle, чтобы автор случайно не сделал неоднозначную ветку.
 function isCommentEdge(edge, nodes) {
   const sourceNode = nodes.find(node => node.id === edge.source);
   const targetNode = nodes.find(node => node.id === edge.target);
@@ -166,7 +189,7 @@ function normalizeEdge(edge, nodes) {
     ? { ...edge.style, ...defaults.style }
     : { ...defaults.style, ...edge.style };
   delete mergedStyle.strokeDasharray; // strip selection-time dash — displayedEdges adds it when needed
-  return {
+  const normalized = {
     ...defaults,
     ...edge,
     animated: false,  // always reset — displayedEdges adds it for selected nodes
@@ -174,6 +197,8 @@ function normalizeEdge(edge, nodes) {
     data: commentEdge ? { ...edge.data, ...defaults.data } : { ...defaults.data, ...edge.data },
     markerEnd: commentEdge ? { ...edge.markerEnd, ...defaults.markerEnd } : { ...defaults.markerEnd, ...edge.markerEnd },
   };
+  if (!commentEdge && !normalized.targetHandle) normalized.targetHandle = 'in';
+  return normalized;
 }
 
 function sourceSlotKey(source, sourceHandle) {
@@ -199,9 +224,12 @@ function targetSlotKey(target, targetHandle) {
   return `${target}\u0000${targetHandle || 'in'}`;
 }
 
-function hasConnectionTo(edges, target, targetHandle) {
+function hasConnectionTo(edges, nodes, target, targetHandle) {
   const key = targetSlotKey(target, targetHandle);
-  return edges.some(edge => targetSlotKey(edge.target, edge.targetHandle) === key);
+  return edges.some(edge =>
+    !isCommentEdge(edge, nodes) &&
+    targetSlotKey(edge.target, edge.targetHandle) === key
+  );
 }
 
 function removeDuplicateConnections(edges, nodes) {
@@ -223,6 +251,9 @@ function deepCopy(x) { return JSON.parse(JSON.stringify(x)); }
 
 const VARIABLE_FIELD_NAMES = new Set(['varName', 'responseVar', 'key', 'targetVar', 'sourceVar']);
 
+// При переименовании переменной нужно обновить не только точные поля varName/key,
+// но и плейсхолдеры {{name}} внутри текстов. Рекурсивный обход проходит по data
+// любой ноды и сохраняет форму массивов/объектов.
 function replaceVariablePlaceholder(text, oldName, newName) {
   return String(text).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, name) => (
     name.trim() === oldName ? `{{${newName}}}` : match
@@ -246,6 +277,9 @@ function renameVariableValue(value, oldName, newName, key = '') {
   return value;
 }
 
+// Автопозиционирование новых нод старается не накладывать их на существующие
+// прямоугольники. Это влияет только на удобство редактора и не меняет JSON-логику
+// сценария, кроме начальной position новой ноды.
 function nodeSize(node) {
   return {
     width: node.measured?.width || node.width || Number.parseFloat(node.style?.width) || 240,
@@ -432,6 +466,10 @@ function extractVars(nodes) {
   return vars;
 }
 
+// Переменные вычисляются относительно пути до ноды: инспектор должен показывать
+// только те значения, которые уже могли быть объявлены раньше в сценарии. Это
+// приближённая статическая проверка, не заменяющая runtime, но сильно помогает
+// автору не ошибиться с плейсхолдерами.
 function codexVariableName(data = {}) {
   const key = String(data.codexKey || data.key || '').trim().replace(/^codex\./i, '');
   return key ? `codex.${key}` : '';
@@ -456,7 +494,36 @@ function extractAchievementVars(nodes) {
   const vars = { 'achievements.list': { type: 'text', defaultValue: '' } };
   for (const node of (nodes || [])) {
     if (node.type !== 'achievementNode' || !node.data?.achievementKey) continue;
+    vars[`achievement.${node.data.achievementKey}`] = { type: 'text', defaultValue: node.data.title || node.data.achievementKey };
     vars[`achievements.text.${node.data.achievementKey}`] = { type: 'text', defaultValue: '' };
+  }
+  return vars;
+}
+
+function extractReputationVars(nodes) {
+  const vars = {};
+  const add = (key, type = 'number') => {
+    const normalized = String(key || '').trim();
+    if (!normalized) return;
+    vars[normalized] = { type, defaultValue: type === 'number' ? 0 : '' };
+  };
+  for (const node of (nodes || [])) {
+    if (node.type === 'relationNode') {
+      for (const entry of (node.data?.entries || [])) {
+        const key = (entry.reputationType && entry.reputationTarget)
+          ? `${entry.reputationType}.${entry.reputationTarget}`
+          : (entry.characterKey || '');
+        if (key) add(`reputation.${key}`, 'number');
+      }
+    }
+    if (node.type === 'reputationStatusNode') {
+      for (const entry of (node.data?.entries || [])) {
+        const key = (entry.reputationType && entry.reputationTarget)
+          ? `${entry.reputationType}.${entry.reputationTarget}`
+          : '';
+        if (key) add(`reputation.status.${key}`, 'text');
+      }
+    }
   }
   return vars;
 }
@@ -529,6 +596,9 @@ function varsBeforeNode(nodes, edges, targetNodeId) {
   return vars;
 }
 
+// Валидация frontend нужна для быстрой обратной связи в редакторе. Backend всё
+// равно валидирует сценарий при сохранении, поэтому правила здесь должны быть
+// синхронизированы с backend/telegramLimits.js и graphUtils/telegramRuntime.
 function validateScenario(nodes, edges) {
   const issues = validateScenarioText(nodes);
   const workEdges = edges.filter(edge => !edge.data?.isComment);
@@ -775,7 +845,7 @@ export default function EditorPage({ user }) {
     const target = event?.target;
     const handleType = params.handleType || (target?.classList?.contains('react-flow__handle-target') ? 'target' : 'source');
     const occupied = handleType === 'target'
-      ? hasConnectionTo(edgesRef.current, params.nodeId, params.handleId)
+      ? hasConnectionTo(edgesRef.current, nodesRef.current, params.nodeId, params.handleId)
       : !canConnectFrom(edgesRef.current, nodesRef.current, params.nodeId, params.handleId);
     pendingConnRef.current = {
       source: params.nodeId,
@@ -1241,7 +1311,7 @@ export default function EditorPage({ user }) {
   if (!bot) return <div style={s.loading}>Загрузка...</div>;
 
   const inspectorNode = selectedNodeIds.length === 1 && inspectorNodeId ? (nodes.find(n => n.id === inspectorNodeId) ?? null) : null;
-  const allBotVariables = { ...extractVars(nodes), ...extractCodexVars(nodes), ...extractAchievementVars(nodes) };
+  const allBotVariables = { ...extractVars(nodes), ...extractCodexVars(nodes), ...extractAchievementVars(nodes), ...extractReputationVars(nodes) };
   const placeholderVariables = { ...SYSTEM_PLACEHOLDER_VARIABLES, ...allBotVariables };
   const botVariables = inspectorNode ? varsBeforeNode(nodes, edges, inspectorNode.id) : allBotVariables;
   const simulatorVariables = simulatorStartNodeId ? varsBeforeNode(nodes, edges, simulatorStartNodeId) : {};

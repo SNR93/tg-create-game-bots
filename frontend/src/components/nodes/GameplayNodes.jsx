@@ -1,5 +1,13 @@
-import React, { useEffect } from 'react';
-import { Handle, Position, useEdges, useNodeId, useUpdateNodeInternals } from '@xyflow/react';
+/**
+ * Codex developer notes:
+ * Визуальное представление ноды GameplayNodes на холсте React Flow.
+ * Компонент должен показывать автору сценария суть ноды и ключевые настройки, не выполняя игровую backend-логику.
+ * Данные приходят через data/style/selected; изменения формы data должны быть синхронизированы с инспектором и runtime.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
+import React, { useEffect, useRef, useState } from 'react';
+import { Handle, Position, useEdges, useNodeId, useNodes, useUpdateNodeInternals } from '@xyflow/react';
 import { normalizeRandomConfig } from '../../randomUtils';
 
 function Frame({ children, selected, icon, title, data, input = true, output = true, wrapStyle }) {
@@ -79,9 +87,6 @@ export function FormulaNode({ data, selected }) {
   );
 }
 
-export function CheckpointNode({ data, selected }) {
-  return <Frame selected={selected} icon="🚩" title={data.title || 'Чекпоинт'} data={data}><div style={s.body}>Сохранить прогресс</div></Frame>;
-}
 
 export function ResetProgressNode({ data, selected }) {
   const preserveVars = data.preserveVars || [];
@@ -133,14 +138,21 @@ export function ReputationStatusNode({ data, selected }) {
   );
 }
 
+const ACHIEVEMENT_WRAP = { width: 240, maxWidth: 240 };
+const ACHIEVEMENT_BODY = { color: '#a0aec0', fontSize: 12, padding: '9px 14px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' };
+
 export function AchievementNode({ data, selected }) {
-  return <Frame selected={selected} icon="🏆" title={data.title === 'Достижение' ? 'Выдать достижение' : (data.title || 'Выдать достижение')} data={data}><div style={s.body}>{data.achievementKey || 'Укажите ключ достижения'}</div></Frame>;
+  return (
+    <Frame selected={selected} icon="🏆" title={data.title === 'Достижение' ? 'Выдать достижение' : (data.title || 'Выдать достижение')} data={data} wrapStyle={ACHIEVEMENT_WRAP}>
+      <div style={ACHIEVEMENT_BODY}>{data.achievementKey || 'Укажите ключ достижения'}</div>
+    </Frame>
+  );
 }
 
 export function AchievementsViewNode({ data, selected }) {
   return (
-    <Frame selected={selected} icon="🏆" title={data.title || 'Достижения'} data={data}>
-      <div style={s.body}>{data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}'}</div>
+    <Frame selected={selected} icon="🏆" title={data.title || 'Достижения'} data={data} wrapStyle={ACHIEVEMENT_WRAP}>
+      <div style={ACHIEVEMENT_BODY}>{data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}'}</div>
     </Frame>
   );
 }
@@ -170,12 +182,100 @@ export function EditMessageNode({ data, selected }) {
   return <Frame selected={selected} icon="📝" title={data.title || 'Изменить сообщение'} data={data}><div style={s.body}>{data.text || 'Введите новый текст'}</div></Frame>;
 }
 
-export function PollNode({ data, selected }) {
-  return <Frame selected={selected} icon="📊" title={data.title || 'Опрос или тест'} data={data}><div style={s.body}>{data.question || 'Введите вопрос'} · {(data.options || []).length} вариантов</div></Frame>;
+function normalizePollOptions(options = []) {
+  return options.map((option, index) => (
+    typeof option === 'string'
+      ? { id: `option-${index}`, label: option }
+      : { id: option.id || `option-${index}`, label: option.label ?? option.text ?? '' }
+  ));
+}
+
+export function PollNode({ id, data, selected }) {
+  const edges = useEdges();
+  const nodes = useNodes();
+  const updateNodeInternals = useUpdateNodeInternals();
+  const options = normalizePollOptions(data.options || []);
+  const isQuiz = !!data.quiz;
+  const correctIndex = Math.min(options.length - 1, Math.max(0, +data.correctOption || 0));
+  const resultRows = [
+    { id: 'correct', label: 'Верный ответ', color: '#22c55e' },
+    { id: 'wrong', label: 'Неверный ответ', color: '#ef4444' },
+  ];
+  const handleRows = isQuiz ? resultRows : options;
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const rowRefs = useRef([]);
+  const [hTops, setHTops] = useState([]);
+
+  useEffect(() => {
+    const tops = rowRefs.current.slice(0, handleRows.length).map(el =>
+      el ? el.offsetTop + Math.round(el.offsetHeight / 2) : 0
+    );
+    setHTops(prev =>
+      prev.length === tops.length && prev.every((v, i) => v === tops[i]) ? prev : tops
+    );
+  });
+
+  useEffect(() => {
+    if (hTops.length > 0) updateNodeInternals(id);
+  }, [hTops, id, updateNodeInternals]);
+
+  const used = (side, optionId) =>
+    edges.some(edge =>
+      edge.source === id &&
+      edge.sourceHandle === `${side}-${optionId}` &&
+      nodeIds.has(edge.target)
+    );
+
+  return (
+    <div style={{
+      ...s.wrap,
+      minWidth: 240,
+      border: selected ? '1px solid #4fd1c5' : '1px solid #3a3f55',
+      boxShadow: selected ? '0 0 0 2px rgba(79,209,197,0.25),0 0 20px rgba(79,209,197,0.12)' : 'none',
+    }}>
+      <Handle type="target" position={Position.Left} id="in" style={s.hIn} />
+      <div style={s.header}><span>📊</span><span style={s.title}>{data.title || 'Опрос или тест'}</span></div>
+      <div style={s.body}>{data.question || 'Введите вопрос'}</div>
+      {options.length === 0 && <div style={s.empty}>Нет вариантов</div>}
+      {isQuiz && options.map((option, index) => (
+        <div key={option.id} style={s.pollRow}>
+          <span style={{ ...s.pollIndex, color: index === correctIndex ? '#22c55e' : '#38bdf8' }}>{index + 1}</span>
+          <span style={s.pollLabel}>{option.label || `Вариант ${index + 1}`}</span>
+          {index === correctIndex && <span style={{ ...s.arrow, color: '#22c55e' }}>✓</span>}
+        </div>
+      ))}
+      {(isQuiz ? resultRows : options).map((row, index) => {
+        const leftUsed = used('left', row.id);
+        const rightUsed = used('right', row.id);
+        const hTop = hTops[index] ?? 0;
+        const visible = hTops[index] !== undefined ? 1 : 0;
+        return (
+          <div key={row.id} ref={el => { rowRefs.current[index] = el; }} style={{ ...s.pollRow, ...(isQuiz ? { borderTop: index === 0 ? '1px solid #3a3f55' : undefined } : {}) }}>
+            <Handle type="source" position={Position.Left} id={`left-${row.id}`}
+              isConnectable={!rightUsed}
+              style={{ ...s.pollHandle, top: hTop, left: -6, opacity: visible * (rightUsed ? 0.3 : 1), background: rightUsed ? '#1e2030' : '#38bdf8', borderColor: rightUsed ? '#3a3f55' : '#0f172a' }} />
+            {isQuiz ? <span style={{ ...s.pollIndex, color: row.color }}>{index === 0 ? '✓' : '×'}</span> : <span style={s.pollIndex}>{index + 1}</span>}
+            <span style={{ ...s.pollLabel, color: isQuiz ? row.color : s.pollLabel.color }}>{row.label || `Вариант ${index + 1}`}</span>
+            {leftUsed && <span style={s.arrow}>◄</span>}
+            {rightUsed && <span style={s.arrow}>►</span>}
+            <Handle type="source" position={Position.Right} id={`right-${row.id}`}
+              isConnectable={!leftUsed}
+              style={{ ...s.pollHandle, top: hTop, right: -6, opacity: visible * (leftUsed ? 0.3 : 1), background: leftUsed ? '#1e2030' : '#38bdf8', borderColor: leftUsed ? '#3a3f55' : '#0f172a' }} />
+          </div>
+        );
+      })}
+      {data.nodeId && <div style={s.id}>ID {data.nodeId}</div>}
+    </div>
+  );
 }
 
 export function StickerNode({ data, selected }) {
-  return <Frame selected={selected} icon="🏷" title={data.title || 'Стикер'} data={data}><div style={s.body}>{data.sticker || 'Укажите file_id или URL'}</div></Frame>;
+  const label = data.stickerName?.trim() || (data.sticker ? data.sticker.slice(0, 22) + (data.sticker.length > 22 ? '…' : '') : 'Укажите стикер');
+  return (
+    <Frame selected={selected} icon="🏷" title={data.title || 'Стикер'} data={data} wrapStyle={{ maxWidth: 200, minWidth: 0 }}>
+      <div style={{ ...s.body, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 172 }}>{label}</div>
+    </Frame>
+  );
 }
 
 export function LocationNode({ data, selected }) {
@@ -357,6 +457,11 @@ const s = {
   value: { color: '#f6ad55', fontSize: 11 },
   body: { color: '#a0aec0', fontSize: 12, padding: '9px 14px' },
   empty: { color: '#4a5568', fontSize: 12, padding: '8px 14px', fontStyle: 'italic' },
+  pollRow: { display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderBottom: '1px solid #2d3250', minHeight: 34 },
+  pollIndex: { width: 18, height: 18, borderRadius: 4, background: '#1e2030', color: '#38bdf8', fontSize: 11, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  pollLabel: { flex: 1, color: '#cbd5e0', fontSize: 12, overflow: 'hidden', overflowWrap: 'anywhere', wordBreak: 'break-word' },
+  pollHandle: { width: 12, height: 12, border: '2px solid', transform: 'none', transition: 'opacity .15s' },
+  arrow: { fontSize: 9, color: '#38bdf8' },
   cont: { position: 'relative', display: 'flex', justifyContent: 'space-between', padding: '7px 14px' },
   muted: { color: '#718096', fontSize: 12 },
   hIn: { background: '#38bdf8', border: '2px solid #0f172a', width: 12, height: 12, left: -6, top: 17, transform: 'none' },

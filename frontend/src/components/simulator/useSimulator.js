@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Часть встроенного симулятора useSimulator: проигрывание сценария без реального Telegram-бота.
+ * Симулятор повторяет ключевые правила runtime на frontend, чтобы автор мог быстро проверить ветки и переменные.
+ * При изменении игровой логики важно синхронизировать этот код с backend/telegramRuntime.js.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import { useState, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { pickRandomBranch } from '../../randomUtils';
@@ -34,6 +42,14 @@ function interpolate(text, vars) {
     const variable = vars?.[name.trim()];
     return variable !== undefined ? String(variable.value ?? '') : match;
   });
+}
+
+function pollOptions(data = {}) {
+  return (data.options || []).map((option, index) => (
+    typeof option === 'string'
+      ? { id: `option-${index}`, label: option }
+      : { id: option.id || `option-${index}`, label: option.label ?? option.text ?? '' }
+  )).filter(option => String(option.label || '').trim());
 }
 
 function evaluateFormulaExpression(expression, vars) {
@@ -219,6 +235,13 @@ export function useSimulator(nodes, edges, initVars) {
         const match = levels.find(l => value >= (l.min ?? -Infinity) && value <= (l.max ?? Infinity));
         dynamic[`reputation.status.${relKey}`] = { type: 'text', value: match?.label ?? '' };
       });
+      Object.entries(reputationStatusMap).forEach(([relKey, levels]) => {
+        if (dynamic[`reputation.status.${relKey}`]) return;
+        const value = relations[relKey] ?? 0;
+        const match = levels.find(l => value >= (l.min ?? -Infinity) && value <= (l.max ?? Infinity));
+        dynamic[`reputation.${relKey}`] = { type: 'number', value };
+        dynamic[`reputation.status.${relKey}`] = { type: 'text', value: match?.label ?? '' };
+      });
       achievementList.forEach(key => {
         const meta = achievementMeta[key] || {};
         const title = meta.title || key;
@@ -236,7 +259,7 @@ export function useSimulator(nodes, edges, initVars) {
           if (achievementList.includes(key)) unlockedTitles.push(title);
         }
       }
-      dynamic['achievements.list'] = { type: 'text', value: unlockedTitles.map(t => `— ${t}`).join('\n') };
+      dynamic['achievements.list'] = { type: 'text', value: unlockedTitles.join('\n') };
       for (const node of nodes || []) {
         if (node.type !== 'codexNode') continue;
         const entries = node.data?.entries?.length > 0
@@ -311,10 +334,32 @@ export function useSimulator(nodes, edges, initVars) {
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;
 
-        case 'pollNode':
-          pushMsg({ from: 'bot', type: 'notification', text: `📊 ${node.data.question || 'Опрос'} · ${(node.data.options || []).length} вариантов` });
-          nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
+        case 'pollNode': {
+          const options = pollOptions(node.data).slice(0, 10);
+          if (options.length < 2) {
+            pushMsg({ from: 'bot', type: 'notification', text: '📊 У опроса меньше двух вариантов.' });
+            nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
+            break;
+          }
+          const displayButtons = options.map(option => ({ ...option, label: interpolate(option.label, templateVars()) }));
+          pushMsg({ from: 'bot', type: 'keyboard', title: interpolate(node.data.question || 'Опрос', templateVars()), buttons: displayButtons });
+          pushLog({ kind: 'keyboard', nodeId, msg: `Ожидание ответа на опрос (${displayButtons.length} вариантов)` });
+          setStatus('waiting_input');
+          const clickedId = await new Promise(r => { inputResolveRef.current = r; });
+          if (stopRef.current) break;
+          setStatus('running');
+          const selected = displayButtons.find(option => option.id === clickedId);
+          const correctIndex = Math.min(displayButtons.length - 1, Math.max(0, +node.data.correctOption || 0));
+          const resultHandle = node.data.quiz ? (displayButtons[correctIndex]?.id === clickedId ? 'correct' : 'wrong') : clickedId;
+          const nextEdge = edges.find(edge =>
+            edge.source === nodeId &&
+            (edge.sourceHandle === `left-${resultHandle}` || edge.sourceHandle === `right-${resultHandle}`) &&
+            nodes.some(item => item.id === edge.target && item.type !== 'commentNode')
+          );
+          pushLog({ kind: 'keyboard', nodeId, msg: node.data.quiz ? `Ответ: "${selected?.label || clickedId}" (${resultHandle === 'correct' ? 'верно' : 'неверно'})` : `Ответ: "${selected?.label || clickedId}"` });
+          nodeId = nextEdge?.target ?? null;
           break;
+        }
 
         case 'stickerNode':
           pushMsg({ from: 'bot', type: 'notification', text: `🏷 Стикер: ${node.data.sticker || '?'}` });
@@ -454,11 +499,6 @@ export function useSimulator(nodes, edges, initVars) {
           nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
           break;
 
-        case 'checkpointNode':
-          pushLog({ kind: 'notification', nodeId, msg: '🚩 Прогресс сохранён' });
-          nodeId = getNext(edges, nodes, nodeId, 'continue') ?? getNext(edges, nodes, nodeId);
-          break;
-
         case 'resetProgressNode': {
           const preserveNames = new Set((node.data.preserveVars || []).map(name => String(name || '').trim()).filter(Boolean));
           setRuntimeVars(current => {
@@ -529,7 +569,7 @@ export function useSimulator(nodes, edges, initVars) {
         case 'achievementsViewNode': {
           const total = new Set(nodes.filter(item => item.type === 'achievementNode' && item.data?.achievementKey).map(item => item.data.achievementKey)).size;
           const unlocked = achievementList.filter(key => nodes.some(item => item.type === 'achievementNode' && item.data?.achievementKey === key)).length;
-          const text = (node.data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}')
+          const text = (node.data.template || 'Достижения: {{achievements.unlocked}} / {{achievements.total}}\n{{achievements.list}}')
             .replace(/\{\{\s*achievements\.unlocked\s*\}\}/g, String(unlocked))
             .replace(/\{\{\s*achievements\.total\s*\}\}/g, String(total))
             .replace(/\{\{\s*unlocked\s*\}\}/g, String(unlocked))

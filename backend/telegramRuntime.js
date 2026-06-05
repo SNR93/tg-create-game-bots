@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Исполнитель Telegram-сценариев: принимает входящие апдейты, проходит по графу нод, отправляет сообщения и сохраняет состояние игрока.
+ * Это самый чувствительный backend-модуль: ошибки здесь напрямую ломают уже запущенных ботов и активные игровые сессии.
+ * Комментарии в файле помогают читать поток выполнения: вход Telegram -> выбор ноды -> side effects -> сохранение сессии.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
@@ -21,6 +29,9 @@ const runtimes = new Map();
 
 fs.mkdirSync(TELEGRAM_DIR, { recursive: true });
 
+// Небольшие файловые helper'ы держим рядом с runtime, потому что они описывают
+// production-раскладку данных: JSON сценариев, локальные медиа и Telegram-конфиги
+// лежат в backend/data и переживают пересборку Docker-контейнера.
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function getBotPath(botId)    { return path.join(BOTS_DIR, `${botId}.json`); }
 function getConfigPath(botId) { return path.join(TELEGRAM_DIR, `${botId}.json`); }
@@ -55,6 +66,10 @@ function stripLoreTags(text) {
   return String(text || '').replace(/<a\s+data-lore-title="[^"]*">([\s\S]*?)<\/a>/gi, '$1');
 }
 
+// Telegram допускает ограниченный набор HTML-тегов. Здесь мы экранируем весь
+// пользовательский текст, но сохраняем только разрешённую разметку. Это защищает
+// от случайно сломанного HTML и одновременно оставляет автору сценария жирный,
+// курсив, ссылки, spoiler и code/pre.
 function telegramTextPayload(text) {
   const raw = stripLoreTags(String(text ?? ''));
   if (!TELEGRAM_FORMAT_TAG.test(raw)) return { text: raw };
@@ -82,6 +97,14 @@ function codexVariableName(data = {}) {
   return key ? `codex.${key}` : '';
 }
 
+function pollOptions(data = {}) {
+  return (data.options || []).map((option, index) => (
+    typeof option === 'string'
+      ? { id: `option-${index}`, label: option }
+      : { id: option.id || `option-${index}`, label: option.label ?? option.text ?? '' }
+  )).filter(option => String(option.label || '').trim());
+}
+
 function readConfig(botId) {
   const p = getConfigPath(botId);
   if (!fs.existsSync(p)) return {};
@@ -96,6 +119,10 @@ function extractByPath(obj, dotPath) {
   return dotPath.split('.').reduce((acc, key) => acc?.[key], obj);
 }
 
+// Формулы выполняются через Function только после жёсткой нормализации:
+// плейсхолдеры заменяются числами, проценты переводятся в арифметику, затем
+// регулярка запрещает любые символы кроме цифр, пробелов и математических знаков.
+// Это компромисс между удобством автора сценария и безопасностью runtime.
 function evaluateFormulaExpression(expression, vars) {
   const withValues = String(expression || '').replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, name) => {
     const variable = vars?.[name.trim()];
@@ -115,6 +142,10 @@ function evaluateFormulaExpression(expression, vars) {
   return Number.isInteger(result) ? result : Math.ceil(result);
 }
 
+// Экземпляр TelegramRuntime обслуживает ровно одного Telegram-бота. Он хранит
+// token, offset long polling, rate limiter, последние логи и Redis-backed sessions.
+// Глобальная Map runtimes ниже нужна, чтобы HTTP API мог управлять каждым ботом
+// независимо и не останавливать остальные сценарии.
 class TelegramRuntime {
   constructor(botId, token, config = {}) {
     this.botId = botId;
@@ -127,6 +158,7 @@ class TelegramRuntime {
     this.botInfo = null;
     this.mode = 'polling';
     this.webhookSecret = config.webhookSecret || randomUUID();
+    this.pollWaits = new Map();
   }
 
   addLog(level, message) {
@@ -148,6 +180,9 @@ class TelegramRuntime {
 
   // ── Telegram API ───────────────────────────────────────────────────
 
+  // Все исходящие запросы проходят через этот метод: тут централизованы лимиты
+  // текста Telegram, rate limiter и единая обработка Bot API. Если добавить новый
+  // способ отправки, лучше вести его через request/upload/sendMediaGroup.
   async request(method, payload = {}) {
     if (method === 'sendMessage' || method === 'editMessageText') assertText(payload.text, TELEGRAM_LIMITS.messageText, 'Текст сообщения');
     if (method === 'sendPoll') {
@@ -200,6 +235,13 @@ class TelegramRuntime {
       const match = levels.find(l => value >= (l.min ?? -Infinity) && value <= (l.max ?? Infinity));
       dynamic[`reputation.status.${relKey}`] = { type: 'text', value: match?.label ?? '' };
     }
+    for (const [relKey, levels] of Object.entries(reputationStatusMap)) {
+      if (dynamic[`reputation.status.${relKey}`]) continue;
+      const value = session.relations?.[relKey] ?? 0;
+      const match = levels.find(l => value >= (l.min ?? -Infinity) && value <= (l.max ?? Infinity));
+      dynamic[`reputation.${relKey}`] = { type: 'number', value };
+      dynamic[`reputation.status.${relKey}`] = { type: 'text', value: match?.label ?? '' };
+    }
     for (const achievementKey of session.achievementList || []) {
       const meta = session.achievementMeta?.[achievementKey] || {};
       const title = meta.title || achievementKey;
@@ -219,7 +261,7 @@ class TelegramRuntime {
         if ((session.achievementList || []).includes(key)) unlockedTitles.push(title);
       }
     }
-    dynamic['achievements.list'] = { type: 'text', value: unlockedTitles.map(t => `— ${t}`).join('\n') };
+    dynamic['achievements.list'] = { type: 'text', value: unlockedTitles.join('\n') };
     for (const node of session.bot?.nodes || []) {
       if (node.type !== 'codexNode') continue;
       const entries = node.data.entries?.length > 0
@@ -279,7 +321,7 @@ class TelegramRuntime {
       waiting: null,
       backgroundWaiting: null,
       callStack: [],
-      storyResumeNodeId: player.checkpoint_node_id || storyRoot?.id || null,
+      storyResumeNodeId: player.current_node_id || null,
       bot,
     };
     this.sessions.set(chatId, session);
@@ -301,6 +343,10 @@ class TelegramRuntime {
 
   // ── Lifecycle ──────────────────────────────────────────────────────
 
+  // При старте runtime сначала проверяет токен через getMe, затем выбирает режим:
+  // webhook при наличии PUBLIC_BASE_URL или long polling для локального/закрытого
+  // сервера. drop_pending_updates=false нужен, чтобы не терять Telegram-события
+  // во время короткого рестарта backend.
   async start() {
     this.botInfo = await this.request('getMe');
     this.running = true;
@@ -309,7 +355,7 @@ class TelegramRuntime {
     const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
     if (publicBaseUrl) {
       this.mode = 'webhook';
-      await this.request('setWebhook', { url: `${publicBaseUrl}/api/telegram/webhook/${this.botId}/${this.webhookSecret}`, allowed_updates: ['message', 'callback_query', 'pre_checkout_query'] });
+      await this.request('setWebhook', { url: `${publicBaseUrl}/api/telegram/webhook/${this.botId}/${this.webhookSecret}`, allowed_updates: ['message', 'callback_query', 'pre_checkout_query', 'poll_answer'] });
       this.addLog('info', 'Webhook подключен');
     } else {
       await this.request('deleteWebhook', { drop_pending_updates: false });
@@ -327,7 +373,7 @@ class TelegramRuntime {
   async poll() {
     while (this.running) {
       try {
-        const updates = await this.request('getUpdates', { offset: this.offset, timeout: 25, allowed_updates: ['message', 'callback_query', 'pre_checkout_query'] });
+        const updates = await this.request('getUpdates', { offset: this.offset, timeout: 25, allowed_updates: ['message', 'callback_query', 'pre_checkout_query', 'poll_answer'] });
         for (const update of updates) { this.offset = update.update_id + 1; await this.handleUpdate(update); }
       } catch (e) {
         if (!this.running) break;
@@ -339,9 +385,14 @@ class TelegramRuntime {
 
   // ── Update handling ────────────────────────────────────────────────
 
+  // Главный вход для Telegram update. Порядок веток важен:
+  // pre_checkout_query и callback_query обрабатываются до обычных сообщений,
+  // /start создаёт сессию, команды меню открываются transient-ветками, а ввод
+  // текста/промокода продолжает ранее поставленное ожидание.
   async handleUpdate(update) {
     try {
       if (update.pre_checkout_query) { await this.request('answerPreCheckoutQuery', { pre_checkout_query_id: update.pre_checkout_query.id, ok: true }); return; }
+      if (update.poll_answer) { await this.handlePollAnswer(update.poll_answer); return; }
       if (update.callback_query) { await this.handleCallback(update.callback_query); return; }
 
       const message = update.message;
@@ -358,10 +409,10 @@ class TelegramRuntime {
         const referrerId = incomingCommand.args.startsWith('ref_') ? incomingCommand.args.slice(4) : '';
         if (referrerId) await playerStore.setReferrer(this.botId, player.telegram_user_id, referrerId);
         const menuNode = session.bot.nodes.find(n => n.type === 'menuNode');
-        await playerStore.recordEvent(this.botId, player.telegram_user_id, 'scenario_start', session.storyResumeNodeId, { resumed: !!player.checkpoint_node_id, menu: !!menuNode });
+        await playerStore.recordEvent(this.botId, player.telegram_user_id, 'scenario_start', session.storyResumeNodeId, { resumed: !!player.current_node_id, menu: !!menuNode });
         this.addLog('info', `Чат ${chatId}: /start`);
         if (menuNode) await this.openTransient(chatId, menuNode.id);
-        else if (session.storyResumeNodeId) await this.execute(chatId, session.storyResumeNodeId);
+        else await this.execute(chatId, session.storyResumeNodeId || findStoryRoot(session.bot)?.id || null);
         await this.sessions.persist(chatId);
         return;
       }
@@ -478,6 +529,9 @@ class TelegramRuntime {
   }
 
   async handleCallback(callback) {
+    // Callback-кнопки Telegram подтверждаем сразу, чтобы у игрока не висел
+    // индикатор загрузки. После этого ищем ожидающую keyboard/poll-ноду и двигаем
+    // сценарий по edge, привязанному к выбранному варианту.
     const chatId = callback.message?.chat?.id;
     await this.request('answerCallbackQuery', { callback_query_id: callback.id });
     const session = await this.sessions.get(chatId);
@@ -491,14 +545,50 @@ class TelegramRuntime {
     const button = (node?.data.buttons || []).find(b => b.id === buttonId);
     if (!node || !button) return;
 
-    const transient = !!session.waiting.transient;
+    let transient = !!session.waiting.transient;
     session.waiting = null;
     session.keyboardMessageId = callback.message?.message_id || session.keyboardMessageId || null;
     const edge = bot.edges.find(e => e.source === node.id && (e.sourceHandle === `left-${buttonId}` || e.sourceHandle === `right-${buttonId}`) && bot.nodes.some(t => t.id === e.target && t.type !== 'commentNode'));
+    // If we're in transient (menu) and the button leads to a story node (not a menu-entry type),
+    // break out of transient so the story runs normally and saves player position.
+    if (transient && edge?.target) {
+      const targetNode = bot.nodes.find(n => n.id === edge.target);
+      const MENU_ENTRY_TYPES = new Set(['menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode', 'commentNode', 'groupNode', 'returnNode']);
+      if (targetNode && !MENU_ENTRY_TYPES.has(targetNode.type)) transient = false;
+    }
     const label = this.interp(button.label, this.templateVars(session), chatId, node.id);
     this.addLog('info', `Чат ${chatId}: «${label}»`);
     await playerStore.recordChoice(this.botId, session.playerId, node.id, buttonId, label);
     await playerStore.recordEvent(this.botId, session.playerId, 'keyboard_choice', node.id, { buttonId, label });
+    await this.execute(chatId, edge?.target || null, { transient });
+    await this.sessions.persist(chatId);
+  }
+
+  async handlePollAnswer(answer) {
+    const wait = this.pollWaits.get(answer.poll_id);
+    const chatId = wait?.chatId || answer.user?.id;
+    if (!chatId) return;
+    const session = await this.sessions.get(chatId);
+    if (!session || session.waiting?.type !== 'poll' || session.waiting.pollId !== answer.poll_id) return;
+
+    const bot = this.botForSession(session);
+    if (!bot) return;
+    const node = bot.nodes.find(n => n.id === session.waiting.nodeId);
+    const options = pollOptions(node?.data || {}).slice(0, 10);
+    const optionIndex = Number(answer.option_ids?.[0]);
+    const option = Number.isInteger(optionIndex) ? options[optionIndex] : null;
+    if (!node || !option) return;
+
+    const transient = !!session.waiting.transient;
+    this.pollWaits.delete(answer.poll_id);
+    session.waiting = null;
+    const correctIndex = Math.min(options.length - 1, Math.max(0, +node.data?.correctOption || 0));
+    const resultHandle = node.data?.quiz ? (optionIndex === correctIndex ? 'correct' : 'wrong') : option.id;
+    const edge = bot.edges.find(e => e.source === node.id && (e.sourceHandle === `left-${resultHandle}` || e.sourceHandle === `right-${resultHandle}`) && bot.nodes.some(t => t.id === e.target && t.type !== 'commentNode'));
+    const label = this.interp(option.label, this.templateVars(session), chatId, node.id);
+    this.addLog('info', `Чат ${chatId}: poll «${label}»`);
+    await playerStore.recordChoice(this.botId, session.playerId, node.id, option.id, label);
+    await playerStore.recordEvent(this.botId, session.playerId, 'poll_choice', node.id, { optionId: option.id, optionIndex, label, quiz: !!node.data?.quiz, correct: node.data?.quiz ? optionIndex === correctIndex : undefined });
     await this.execute(chatId, edge?.target || null, { transient });
     await this.sessions.persist(chatId);
   }
@@ -569,6 +659,9 @@ class TelegramRuntime {
   }
 
   async runContentSequence(chatId, node, items, index = 0, transient = false, skipCurrentDelay = false) {
+    // Цепочки сообщений могут содержать задержки. Вместо удержания процесса
+    // таймером на долгое время мы создаём scheduled job, который поднимет
+    // выполнение позже и переживёт рестарт backend.
     const session = await this.sessions.get(chatId);
     if (!session) return;
     const bot = this.botForSession(session);
@@ -607,6 +700,9 @@ class TelegramRuntime {
 
   // ── Scenario execution ─────────────────────────────────────────────
 
+  // Основной интерпретатор графа. Он идёт по nodeId, выполняет side effects ноды
+  // и выбирает следующий nodeId через getNext/handles. Лимит 300 шагов защищает
+  // от бесконечных циклов в сценарии; для намеренных циклов есть loopNode.
   async execute(chatId, initialNodeId, options = {}) {
     const session = await this.sessions.get(chatId);
     if (!session) return;
@@ -614,6 +710,15 @@ class TelegramRuntime {
     if (!initialNodeId) { if (transient) this.restoreTransient(session); return; }
     const bot = this.botForSession(session);
     if (!bot) { this.addLog('error', `execute: bot ${this.botId} is not available`); return; }
+    // Ноды, которые реально взаимодействуют с игроком — только они сохраняются
+    // как точка возобновления истории (current_node_id в БД).
+    const PLAYER_FACING_NODES = new Set([
+      'simpleMessageNode', 'messageChainNode', 'mediaNode', 'keyboardNode',
+      'stickerNode', 'locationNode', 'pollNode', 'textInputNode',
+      'editMessageNode', 'delayNode', 'promocodeNode', 'purchaseNode',
+      'subscriptionCheckNode', 'starsShopNode', 'applicationNode',
+    ]);
+
     let nodeId = initialNodeId;
 
     for (let step = 0; nodeId && step < 300; step++) {
@@ -622,7 +727,9 @@ class TelegramRuntime {
 
       if (!transient) {
         session.storyResumeNodeId = node.id;
-        await playerStore.setCurrentNode(this.botId, session.playerId, node.id);
+        if (PLAYER_FACING_NODES.has(node.type)) {
+          await playerStore.setCurrentNode(this.botId, session.playerId, node.id);
+        }
       }
       await playerStore.recordEvent(this.botId, session.playerId, 'node_enter', node.id, { nodeType: node.type, transient });
       this.addLog('info', `Чат ${chatId}: ${node.type} ${node.data.nodeId || node.id.slice(0, 7)}`);
@@ -641,7 +748,12 @@ class TelegramRuntime {
           if (transient) {
             const waiting = session.backgroundWaiting;
             this.restoreTransient(session);
+            session.keyboardMessageId = null;
             if (waiting) return;
+            if (!session.storyResumeNodeId) {
+              await this.request('sendMessage', { chat_id: chatId, text: node.data.noSaveText || '⚠️ Нет сохранённого прогресса. Начните новую игру.' });
+              return;
+            }
             return this.execute(chatId, session.storyResumeNodeId);
           }
           nodeId = null;
@@ -683,24 +795,41 @@ class TelegramRuntime {
         }
 
         case 'pollNode': {
-          const options = (node.data.options || []).map(String).filter(Boolean).slice(0, 10);
+          const options = pollOptions(node.data).slice(0, 10);
           if (options.length >= 2) {
-            await this.request('sendPoll', {
+            const question = this.interp(node.data.question || 'Опрос', this.templateVars(session), chatId, node.id);
+            const labels = options.map(option => this.interp(option.label || 'Вариант', this.templateVars(session), chatId, node.id));
+            const sent = await this.request('sendPoll', {
               chat_id: chatId,
-              question: this.interp(node.data.question || 'Опрос', this.templateVars(session), chatId, node.id),
-              options,
+              question,
+              options: labels,
               type: node.data.quiz ? 'quiz' : 'regular',
-              correct_option_id: node.data.quiz ? Math.min(options.length - 1, Math.max(0, +node.data.correctOption || 0)) : undefined,
+              is_anonymous: false,
+              ...(node.data.quiz ? { correct_option_id: Math.min(labels.length - 1, Math.max(0, +node.data.correctOption || 0)) } : {}),
             });
+            const pollId = sent?.poll?.id;
+            session.waiting = { type: 'poll', nodeId: node.id, pollId, transient };
+            if (pollId) this.pollWaits.set(pollId, { chatId, nodeId: node.id, transient });
+            return;
           }
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
         }
 
-        case 'stickerNode':
-          if (node.data.sticker) await this.request('sendSticker', { chat_id: chatId, sticker: node.data.sticker });
+        case 'stickerNode': {
+          if (node.data.sticker) {
+            const stickerLocalPath = resolveLocalPath(node.data.sticker, MEDIA_DIR);
+            if (stickerLocalPath) {
+              const ext = path.extname(stickerLocalPath).toLowerCase();
+              if (ext === '.webp') await this.upload('sendSticker', 'sticker', chatId, stickerLocalPath);
+              else await this.upload('sendPhoto', 'photo', chatId, stickerLocalPath);
+            } else {
+              await this.request('sendSticker', { chat_id: chatId, sticker: node.data.sticker });
+            }
+          }
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
+        }
 
         case 'locationNode':
           await this.request('sendLocation', { chat_id: chatId, latitude: +node.data.latitude || 0, longitude: +node.data.longitude || 0 });
@@ -752,6 +881,8 @@ class TelegramRuntime {
         case 'variableNode':
           for (const entry of node.data.entries || []) {
             if (!entry.varName) continue;
+            // 'init' — set only if variable is not yet defined for this player
+            if (entry.action === 'init' && session.vars[entry.varName] !== undefined) continue;
             const type = entry.varType || 'boolean';
             const current = session.vars[entry.varName] || { type, value: type === 'number' ? 0 : (type === 'text' ? '' : false) };
             let value = entry.value ?? (type === 'number' ? 0 : (type === 'text' ? '' : false));
@@ -905,11 +1036,6 @@ class TelegramRuntime {
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
 
-        case 'checkpointNode':
-          await playerStore.setCheckpoint(this.botId, session.playerId, node.id);
-          nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
-          break;
-
         case 'resetProgressNode': {
           const preserveNames = [...new Set((node.data.preserveVars || [])
             .map(name => String(name || '').trim())
@@ -924,6 +1050,7 @@ class TelegramRuntime {
           session.relations = relationMap(refreshed?.relations || []);
           session.achievementList = (refreshed?.achievements || []).map(item => item.achievement_key);
           session.achievementMeta = Object.fromEntries((refreshed?.achievements || []).map(item => [item.achievement_key, item.metadata || {}]));
+          session.storyResumeNodeId = findStoryRoot(bot)?.id || null;
           await playerStore.recordEvent(this.botId, session.playerId, 'progress_reset', node.id, { preserveVars: preserveNames });
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
@@ -946,7 +1073,11 @@ class TelegramRuntime {
 
         case 'keyboardNode': {
           const allButtons = node.data.buttons || [];
-          const visibleButtons = allButtons.filter(btn => evaluateButtonCondition(btn, session));
+          const matchedButtons = allButtons.filter(btn => evaluateButtonCondition(btn, session));
+          const visibleButtons = matchedButtons.slice(0, TELEGRAM_LIMITS.inlineKeyboardButtons);
+          if (matchedButtons.length > TELEGRAM_LIMITS.inlineKeyboardButtons) {
+            this.addLog('warn', `Чат ${chatId}: keyboard ${node.id} содержит ${matchedButtons.length} видимых кнопок, отправлены первые ${TELEGRAM_LIMITS.inlineKeyboardButtons}`);
+          }
           if (visibleButtons.length === 0) { nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id); break; }
           const hasCallback = visibleButtons.some(b => b.type !== 'url');
           const keyboard = visibleButtons.map(btn =>
@@ -1093,8 +1224,9 @@ class TelegramRuntime {
     }
 
     if (transient) { this.restoreTransient(session); return; }
-    session.storyResumeNodeId = null;
-    await playerStore.setCurrentNode(this.botId, session.playerId, null);
+    // Do NOT clear current_node_id when story runs out of nodes — the player may
+    // have hit an unfinished branch. Keep the last player-facing position so that
+    // "Продолжить историю" can resume from there.
     await playerStore.recordEvent(this.botId, session.playerId, 'scenario_complete', null);
   }
 }

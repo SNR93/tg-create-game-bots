@@ -1,8 +1,19 @@
+/**
+ * Codex developer notes:
+ * Единый API-клиент frontend: авторизация, CRUD ботов, медиа, Telegram, админ-панель и скачивание JSON.
+ * React-компоненты должны обращаться к backend через эти функции, чтобы обработка ошибок и токенов была одинаковой.
+ * При изменении backend-маршрутов сначала обновляй этот слой, а затем компоненты.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import { validateMediaFile } from './telegramLimits';
 
 const BASE = '/api';
 const AUTH_TOKEN_KEY = 'tgbot_auth_token';
 
+// Токен держим в localStorage и параллельно backend выставляет httpOnly-style
+// cookie-настройки через Set-Cookie. Authorization header нужен для fetch-запросов
+// из SPA и для сценариев, где cookie может не прикрепиться автоматически.
 export function getAuthToken() {
   return localStorage.getItem(AUTH_TOKEN_KEY) || '';
 }
@@ -12,6 +23,9 @@ export function logout() {
   fetch(`${BASE}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
 }
 
+// Единая обёртка над fetch. Она добавляет Bearer-токен, не перетирая заголовки
+// конкретного запроса, поэтому upload/raw body и JSON-запросы могут задавать свои
+// Content-Type независимо.
 async function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   const token = getAuthToken();
@@ -19,6 +33,8 @@ async function apiFetch(url, options = {}) {
   return fetch(url, { ...options, headers, credentials: 'include' });
 }
 
+// Все JSON endpoints читаются через один helper, чтобы компоненты получали
+// одинаковые Error-сообщения и не дублировали response.ok/response.json логику.
 async function readJson(response, fallbackMessage) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || fallbackMessage);
@@ -98,6 +114,8 @@ export async function getUserProfile(login) {
   return readJson(response, 'Не удалось загрузить профиль пользователя');
 }
 
+// CRUD ботов работает с JSON-сценариями на backend. saveBot дополнительно даёт
+// backend возможность валидировать Telegram-лимиты и связи графа перед записью.
 export async function listBots() {
   const r = await apiFetch(`${BASE}/bots`);
   return readJson(r, 'Не удалось загрузить список ботов');
@@ -213,15 +231,19 @@ export async function uploadProfileAvatar(file) {
   return readJson(r, 'Не удалось загрузить аватар');
 }
 
-export async function uploadBotMedia(id, type, file) {
+// Медиа грузится raw body, а не multipart/form-data: backend сохраняет файл в
+// backend/data/media и возвращает URL, который потом сохраняется в JSON сценария.
+export async function uploadBotMedia(id, type, file, stickerName) {
   const validationError = validateMediaFile(type, file);
   if (validationError) throw new Error(validationError);
+  const headers = {
+    'Content-Type': file.type || 'application/octet-stream',
+    'X-File-Name': encodeURIComponent(file.name),
+  };
+  if (stickerName) headers['X-Sticker-Name'] = encodeURIComponent(stickerName);
   const r = await apiFetch(`${BASE}/bots/${id}/media/${type}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': file.type || 'application/octet-stream',
-      'X-File-Name': encodeURIComponent(file.name),
-    },
+    headers,
     body: file,
   });
   const data = await r.json();
@@ -229,11 +251,19 @@ export async function uploadBotMedia(id, type, file) {
   return data;
 }
 
+export async function listBotMedia(id, type) {
+  const r = await apiFetch(`${BASE}/bots/${id}/media/${type}`);
+  return readJson(r, 'Не удалось получить список медиа');
+}
+
 export async function deleteBot(id) {
   const r = await apiFetch(`${BASE}/bots/${id}`, { method: 'DELETE' });
   return readJson(r, 'Не удалось удалить бота');
 }
 
+// Скачивание JSON намеренно делает blob на клиенте. Даже если backend присылает
+// Content-Disposition, link.download оставляет пользователю понятное имя файла
+// при работе через SPA и прокси.
 export async function downloadBot(id, name = 'bot') {
   const response = await apiFetch(`${BASE}/bots/${id}/download`);
   if (!response.ok) {
@@ -251,6 +281,8 @@ export async function downloadBot(id, name = 'bot') {
   URL.revokeObjectURL(url);
 }
 
+// Админские endpoints сгруппированы через общий helper, потому что все они имеют
+// одинаковый префикс /bots/:id/admin и одинаковую обработку ошибок доступа/ролей.
 async function adminRequest(id, path = '', options) {
   const response = await apiFetch(`${BASE}/bots/${id}/admin${path}`, options);
   const data = await response.json();

@@ -1,9 +1,18 @@
-import React, { useMemo, useState } from 'react';
+/**
+ * Codex developer notes:
+ * Инспектор настроек GameplayInspectors: форма редактирования data для выбранной ноды.
+ * Инспектор не должен напрямую сохранять бота на сервер: он меняет локальное состояние редактора, а сохранение делает страница редактора.
+ * При добавлении полей нужно обновлять defaults, визуальную ноду, симулятор/runtime и проверки сценария.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { v4 as uuidv4 } from 'uuid';
 import PlaceholderField from './PlaceholderField';
 import { EDITOR_LIMITS, TELEGRAM_LIMITS, isSystemPlaceholderName } from '../../telegramLimits';
 import { normalizeRandomConfig, randomConfigErrors } from '../../randomUtils';
-import { uploadBotMedia } from '../../api';
+import { uploadBotMedia, listBotMedia } from '../../api';
 
 function Section({ title, children }) {
   return <div style={s.section}><div style={s.title}>{title}</div>{children}</div>;
@@ -256,9 +265,6 @@ export function FormulaInspector({ data, onUpdate, botVariables }) {
   );
 }
 
-export function CheckpointInspector({ data, onUpdate }) {
-  return <Section title="Чекпоинт"><div style={s.hint}>При прохождении этой ноды сохраняется точка прогресса игрока.</div></Section>;
-}
 
 export function ResetProgressInspector({ data, onUpdate, botVariables }) {
   const preserveVars = data.preserveVars || [];
@@ -650,20 +656,25 @@ export function EditMessageInspector({ data, onUpdate }) {
 }
 
 export function PollInspector({ data, onUpdate }) {
-  const options = data.options || [];
+  const options = (data.options || []).map((option, index) => (
+    typeof option === 'string'
+      ? { id: `option-${index}`, label: option }
+      : { id: option.id || `option-${index}`, label: option.label ?? option.text ?? '' }
+  ));
+  const patchOptions = nextOptions => onUpdate({ options: nextOptions });
   return (
     <Section title="Опрос или тест">
       <div style={s.fieldLabel}>Вопрос:</div>
       <Input value={data.question || ''} maxLength={TELEGRAM_LIMITS.pollQuestion} placeholder="Введите вопрос..." onChange={e => onUpdate({ question: e.target.value })} />
       <div style={{ ...s.fieldLabel, marginTop: 10 }}>Варианты ответа:</div>
       {options.map((option, index) => (
-        <div key={index} style={s.row}>
+        <div key={option.id} style={s.row}>
           <span style={{ color: '#4a5568', fontSize: 12, flexShrink: 0, width: 20 }}>{index + 1}.</span>
-          <Input value={option} maxLength={TELEGRAM_LIMITS.pollOption} placeholder={`Вариант ${index + 1}`} onChange={e => onUpdate({ options: options.map((v, i) => i === index ? e.target.value : v) })} />
-          <button style={s.remove} onClick={() => onUpdate({ options: options.filter((_, i) => i !== index) })}>×</button>
+          <Input value={option.label} maxLength={TELEGRAM_LIMITS.pollOption} placeholder={`Вариант ${index + 1}`} onChange={e => patchOptions(options.map((item, i) => i === index ? { ...item, label: e.target.value } : item))} />
+          <button style={s.remove} onClick={() => patchOptions(options.filter((_, i) => i !== index))}>×</button>
         </div>
       ))}
-      <button style={s.add} disabled={options.length >= 10} onClick={() => onUpdate({ options: [...options, ''] })}>+ Добавить вариант</button>
+      <button style={s.add} disabled={options.length >= 10} onClick={() => patchOptions([...options, { id: uuidv4(), label: '' }])}>+ Добавить вариант</button>
       <label style={{ ...s.check, marginTop: 10 }}>
         <input type="checkbox" checked={!!data.quiz} onChange={e => onUpdate({ quiz: e.target.checked })} />
         <span>Режим теста (один правильный ответ)</span>
@@ -672,30 +683,85 @@ export function PollInspector({ data, onUpdate }) {
         <div style={{ marginTop: 8 }}>
           <div style={s.fieldLabel}>Правильный ответ:</div>
           <select style={{ ...s.select, width: '100%' }} value={data.correctOption ?? 0} onChange={e => onUpdate({ correctOption: +e.target.value })}>
-            {options.map((opt, i) => <option key={i} value={i}>{i + 1}. {opt || `Вариант ${i + 1}`}</option>)}
+            {options.map((opt, i) => <option key={opt.id} value={i}>{i + 1}. {opt.label || `Вариант ${i + 1}`}</option>)}
           </select>
         </div>
       )}
+      <div style={s.hint}>{data.quiz
+        ? 'В режиме теста варианты отправляются как quiz-опрос Telegram, а сценарий идёт через выходы «Верный ответ» или «Неверный ответ».'
+        : 'Каждый вариант имеет левый и правый выход на самой ноде. В Telegram варианты отправляются как опрос, а ответ игрока ведёт по подключённой ветке.'}</div>
     </Section>
+  );
+}
+
+function StickerLightbox({ src, onClose }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return createPortal(
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 99999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
+    }}>
+      <img src={src} alt="sticker zoom"
+        style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 12, objectFit: 'contain', boxShadow: '0 8px 40px rgba(0,0,0,0.7)' }}
+        onClick={e => e.stopPropagation()} />
+      <button onClick={onClose} style={{
+        position: 'fixed', top: 18, right: 22, background: 'rgba(255,255,255,0.12)', border: 'none',
+        borderRadius: '50%', width: 36, height: 36, color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1,
+      }}>×</button>
+    </div>,
+    document.body
   );
 }
 
 export function StickerInspector({ data, onUpdate, botId }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [lightbox, setLightbox] = useState(null);
+  const [library, setLibrary] = useState([]);
+  const [libLoading, setLibLoading] = useState(false);
+
+  const loadLibrary = useCallback(async () => {
+    if (!botId) return;
+    setLibLoading(true);
+    try {
+      const files = await listBotMedia(botId, 'sticker');
+      setLibrary(files);
+    } catch { setLibrary([]); }
+    finally { setLibLoading(false); }
+  }, [botId]);
+
+  useEffect(() => { loadLibrary(); }, [loadLibrary]);
+
   async function handleFile(file) {
     if (!file) return;
+    if (!data.stickerName?.trim()) {
+      setUploadError('Введите имя стикера перед загрузкой');
+      return;
+    }
     setUploading(true); setUploadError('');
     try {
-      const uploaded = await uploadBotMedia(botId, 'sticker', file);
+      const uploaded = await uploadBotMedia(botId, 'sticker', file, data.stickerName.trim());
       onUpdate({ sticker: uploaded.url, fileName: uploaded.fileName });
+      loadLibrary();
     } catch (e) { setUploadError(e.message); }
     finally { setUploading(false); }
   }
+
+  function selectFromLibrary(item) {
+    onUpdate({ sticker: item.url, stickerName: item.stickerName, fileName: item.name });
+  }
+
+  const isLocalUrl = data.sticker?.startsWith('/api/media/');
   return (
     <Section title="Стикер">
-      <div style={s.fieldLabel}>file_id или URL стикера:</div>
-      <Input value={data.sticker || ''} maxLength={EDITOR_LIMITS.url} placeholder="file_id или https://..." onChange={e => onUpdate({ sticker: e.target.value })} />
+      {lightbox && <StickerLightbox src={lightbox} onClose={() => setLightbox(null)} />}
+
+      <div style={s.fieldLabel}>Имя стикера (используется как имя файла):</div>
+      <Input value={data.stickerName || ''} placeholder="Имя (рус/англ/цифры/спецсимволы)" onChange={e => onUpdate({ stickerName: e.target.value })} />
       {botId && (
         <>
           <div style={{ ...s.fieldLabel, marginTop: 8 }}>Или загрузить с компьютера (WebP/PNG):</div>
@@ -708,7 +774,47 @@ export function StickerInspector({ data, onUpdate, botId }) {
           {uploadError && <div style={s.error}>{uploadError}</div>}
         </>
       )}
-      <div style={s.hint}>Стикер — это анимированный или статичный WebP/PNG. Обычно вставляют file_id из чата. Загруженный файл сохраняется на сервере.</div>
+
+      {isLocalUrl && (
+        <div style={{ marginTop: 10, borderTop: '1px solid #2d3458', paddingTop: 10 }}>
+          <div style={s.fieldLabel}>Предпросмотр:</div>
+          <img src={data.sticker} alt="sticker preview" onClick={() => setLightbox(data.sticker)}
+            style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 8, background: '#111827', objectFit: 'contain', display: 'block', cursor: 'zoom-in' }} />
+        </div>
+      )}
+      {data.sticker && !isLocalUrl && (
+        <div style={{ ...s.hint, marginTop: 8 }}>Предпросмотр недоступен для file_id Telegram — стикер будет виден только в боте.</div>
+      )}
+
+      {botId && (
+        <div style={{ marginTop: 12, borderTop: '1px solid #2d3458', paddingTop: 10 }}>
+          <div style={{ ...s.fieldLabel, marginBottom: 6 }}>Стикеры проекта ({libLoading ? '…' : library.length}):</div>
+          {library.length === 0 && !libLoading && (
+            <div style={{ color: '#4a5568', fontSize: 11, fontStyle: 'italic' }}>Нет загруженных стикеров</div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {library.map(item => {
+              const active = data.sticker === item.url;
+              return (
+                <div key={item.url} title={`${item.stickerName}\nДвойной клик — увеличить`}
+                  onClick={() => selectFromLibrary(item)}
+                  onDoubleClick={e => { e.stopPropagation(); setLightbox(item.url); }}
+                  style={{
+                    width: 56, height: 56, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', flexShrink: 0,
+                    border: active ? '2px solid #4fd1c5' : '2px solid #3a3f55',
+                    background: '#111827',
+                    boxShadow: active ? '0 0 0 2px rgba(79,209,197,0.35)' : 'none',
+                  }}>
+                  <img src={item.url} alt={item.stickerName}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' }} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div style={{ ...s.hint, marginTop: 8 }}>Стикер — WebP/PNG/GIF. Файл сохраняется как <em>botFolder/stickers/имя.расширение</em>.</div>
     </Section>
   );
 }

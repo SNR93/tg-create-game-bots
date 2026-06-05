@@ -1,5 +1,27 @@
+/**
+ * Codex developer notes:
+ * Низкоуровневый клиент Telegram Bot API.
+ * Слой централизует HTTP-запросы, обработку ошибок Telegram и отправку медиа/сообщений.
+ * Runtime должен вызывать этот модуль, а не собирать Telegram-запросы вручную в разных местах.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 const fs = require('fs');
 const path = require('path');
+
+const MIME_TYPES = {
+  '.webp': 'image/webp',
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif':  'image/gif',
+  '.mp4':  'video/mp4',
+  '.mp3':  'audio/mpeg',
+  '.ogg':  'audio/ogg',
+  '.wav':  'audio/wav',
+  '.m4a':  'audio/mp4',
+  '.pdf':  'application/pdf',
+};
 
 function telegramError(error, status) {
   const message = error?.message || String(error || '');
@@ -97,7 +119,8 @@ async function apiUpload(token, rateLimiter, method, field, chatId, filePath, da
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined && value !== null && value !== '') form.append(key, String(value));
   }
-  form.append(field, new Blob([fs.readFileSync(filePath)]), path.basename(filePath));
+  const mimeType = MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+  form.append(field, new Blob([fs.readFileSync(filePath)], { type: mimeType }), path.basename(filePath));
   try {
     const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST',

@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Инспектор настроек MediaInspector: форма редактирования data для выбранной ноды.
+ * Инспектор не должен напрямую сохранять бота на сервер: он меняет локальное состояние редактора, а сохранение делает страница редактора.
+ * При добавлении полей нужно обновлять defaults, визуальную ноду, симулятор/runtime и проверки сценария.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { uploadBotMedia } from '../../api';
@@ -102,13 +110,6 @@ export default function MediaInspector({ data, onUpdate, botId }) {
             }}
           />
         </label>
-        <div style={s.addGrid}>
-          {TYPES.map(type => (
-            <button key={type.key} style={s.addButton} onClick={() => updateItems([...items, makeMedia(type.key)])}>
-              {type.icon} URL {type.label.toLowerCase()}
-            </button>
-          ))}
-        </div>
         {error && <div style={s.error}>{error}</div>}
       </Section>
     </div>
@@ -154,7 +155,6 @@ function MediaCard({ item, index, total, botId, onPatch, onDelete, onMove }) {
             </button>
           ))}
         </div>
-        <Input value={item.url || ''} maxLength={EDITOR_LIMITS.url} placeholder="URL файла..." onChange={url => onPatch({ url })} />
         <label style={s.fileButton}>
           {uploading ? 'Загрузка...' : '📁 Заменить файл'}
           <input type="file" style={{ display: 'none' }} disabled={uploading}
@@ -204,8 +204,6 @@ const s = {
   sectionLabel: { fontSize: 11, fontWeight: 700, color: '#718096', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
   empty: { color: '#4a5568', fontSize: 12, textAlign: 'center', padding: '8px 0' },
   uploadButton: { display: 'block', background: '#2563eb', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 700, padding: '8px 10px', cursor: 'pointer', textAlign: 'center', marginBottom: 8 },
-  addGrid: { display: 'flex', flexWrap: 'wrap', gap: 5 },
-  addButton: { background: '#1e2030', border: '1px solid #3a3f55', borderRadius: 6, color: '#a0aec0', fontSize: 11, padding: '5px 8px', cursor: 'pointer' },
   card: { background: '#1e2030', border: '1px solid #3a3f55', borderRadius: 8, marginBottom: 8, overflow: 'hidden' },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 4, padding: '7px 9px', background: '#252838', borderBottom: '1px solid #2d3458' },
   cardTitle: { flex: 1, color: '#e2e8f0', fontSize: 12, fontWeight: 600, overflow: 'hidden', whiteSpace: 'nowrap' },

@@ -1,3 +1,11 @@
+/**
+ * Codex developer notes:
+ * Панель интерфейса CompareView: отдельная рабочая область редактора или админского инструмента.
+ * Панель держит локальные UI-состояния, но долгоживущие данные получает через props или API-клиент.
+ * Изменения здесь часто влияют на UX, поэтому проверяй переполнение текста и поведение на узких экранах.
+ * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
+ */
+
 import React, { useMemo } from 'react';
 import { ReactFlow, Background, BackgroundVariant, MarkerType } from '@xyflow/react';
 import StartNode from '../nodes/StartNode';
@@ -8,9 +16,9 @@ import CommentNode from '../nodes/CommentNode';
 import MediaNode from '../nodes/MediaNode';
 import GroupNode from '../nodes/GroupNode';
 import { CommandEntryNode, ContinueStoryNode } from '../nodes/CommandEntryNode';
-import { AchievementNode, CheckpointNode, FormulaNode, InventoryNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ResetProgressNode, ReturnNode, SubscenarioNode } from '../nodes/GameplayNodes';
+import { AchievementNode, FormulaNode, InventoryNode, PromocodeNode, PurchaseNode, RandomNode, RelationNode, ResetProgressNode, ReturnNode, SubscenarioNode } from '../nodes/GameplayNodes';
 
-const nodeTypes = { startNode: StartNode, applicationNode: ApplicationNode, messageChainNode: MessageChainNode, conditionNode: ConditionNode, commentNode: CommentNode, mediaNode: MediaNode, inventoryNode: InventoryNode, formulaNode: FormulaNode, randomNode: RandomNode, checkpointNode: CheckpointNode, resetProgressNode: ResetProgressNode, relationNode: RelationNode, achievementNode: AchievementNode, promocodeNode: PromocodeNode, subscenarioNode: SubscenarioNode, returnNode: ReturnNode, purchaseNode: PurchaseNode, menuNode: CommandEntryNode, settingsNode: CommandEntryNode, customCommandNode: CommandEntryNode, continueStoryNode: ContinueStoryNode, groupNode: GroupNode };
+const nodeTypes = { startNode: StartNode, applicationNode: ApplicationNode, messageChainNode: MessageChainNode, conditionNode: ConditionNode, commentNode: CommentNode, mediaNode: MediaNode, inventoryNode: InventoryNode, formulaNode: FormulaNode, randomNode: RandomNode, resetProgressNode: ResetProgressNode, relationNode: RelationNode, achievementNode: AchievementNode, promocodeNode: PromocodeNode, subscenarioNode: SubscenarioNode, returnNode: ReturnNode, purchaseNode: PurchaseNode, menuNode: CommandEntryNode, settingsNode: CommandEntryNode, customCommandNode: CommandEntryNode, continueStoryNode: ContinueStoryNode, groupNode: GroupNode };
 
 const EDGE_BASE = { animated: false, markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 } };
 
