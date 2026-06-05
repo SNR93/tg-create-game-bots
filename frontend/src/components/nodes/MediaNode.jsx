@@ -35,7 +35,6 @@ export default function MediaNode({ data, selected }) {
           {item.protected && <span style={s.lock} title="Защищённый контент">🔒</span>}
           <span style={s.mIcon}>{TYPE_ICON[item.type] ?? '📎'}</span>
           <span style={s.mText}>{item.fileName || item.url?.split('/').pop() || item.type}</span>
-          {item.delay > 0 && <span style={s.delay}>{item.delay}с</span>}
         </div>
       ))}
 
@@ -60,7 +59,6 @@ const s = {
   lock: { fontSize: 11, filter: 'sepia(1) saturate(3) hue-rotate(10deg)', flexShrink: 0 },
   mIcon: { fontSize: 12, flexShrink: 0 },
   mText: { flex: 1, fontSize: 12, color: '#a0aec0', overflow: 'hidden', whiteSpace: 'nowrap' },
-  delay: { fontSize: 10, color: '#3b82f6', background: 'rgba(59,130,246,0.12)', borderRadius: 3, padding: '1px 4px', flexShrink: 0 },
   cont: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 14px', position: 'relative' },
   contLabel: { fontSize: 12, color: '#718096' },
   hIn: { background: '#38bdf8', border: '2px solid #0f172a', width: 12, height: 12, left: -6, transform: 'none' },

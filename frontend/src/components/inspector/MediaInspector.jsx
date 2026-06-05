@@ -19,7 +19,7 @@ const TYPES = [
 ];
 
 function makeMedia(type = 'photo') {
-  return { id: uuidv4(), type, url: '', fileName: '', delay: 0, protected: false, asVideoNote: false };
+  return { id: uuidv4(), type, url: '', fileName: '', protected: false, asVideoNote: false };
 }
 
 function detectType(file) {
@@ -77,7 +77,7 @@ export default function MediaInspector({ data, onUpdate, botId }) {
           <input type="checkbox" checked={!!data.asAlbum} onChange={event => onUpdate({ asAlbum: event.target.checked })} />
           <span>Отправить фото и видео одним альбомом</span>
         </label>
-        {data.asAlbum && <div style={s.note}>Альбом применяется для 2-10 фото или видео. Для остальных файлов сохраняется последовательная отправка с задержками.</div>}
+        {data.asAlbum && <div style={s.note}>Альбом: от 2 до 10 фото или видео без кружков. Аудио и документы отправляются отдельными сообщениями сразу после альбома.</div>}
       </Section>
 
       <Section label={`Медиа (${items.length})`}>
@@ -140,7 +140,6 @@ function MediaCard({ item, index, total, botId, onPatch, onDelete, onMove }) {
     <div style={s.card}>
       <div style={s.cardHeader}>
         <span style={s.cardTitle}>{TYPES.find(type => type.key === item.type)?.icon || '📎'} {item.fileName || item.type}</span>
-        {item.delay > 0 && <span style={s.delayBadge}>{item.delay}с</span>}
         <button style={s.smallButton} onClick={() => onMove('up')} disabled={index === 0}>↑</button>
         <button style={s.smallButton} onClick={() => onMove('down')} disabled={index === total - 1}>↓</button>
         <button style={{ ...s.smallButton, color: '#fc8181' }} onClick={onDelete}>✕</button>
@@ -178,13 +177,6 @@ function MediaCard({ item, index, total, botId, onPatch, onDelete, onMove }) {
           <input type="checkbox" checked={!!item.protected} onChange={event => onPatch({ protected: event.target.checked })} />
           <span>🔒 Защищённый контент</span>
         </label>
-        <div style={s.delayRow}>
-          <span style={s.delayLabel}>Задержка перед отправкой</span>
-          <input type="number" min={0} max={300} step={1} value={item.delay || 0} style={s.numberInput}
-            onChange={event => onPatch({ delay: Math.max(0, +event.target.value) })}
-            onKeyDown={event => event.stopPropagation()} />
-          <span style={s.delayLabel}>сек</span>
-        </div>
       </div>
     </div>
   );
@@ -208,7 +200,6 @@ const s = {
   cardHeader: { display: 'flex', alignItems: 'center', gap: 4, padding: '7px 9px', background: '#252838', borderBottom: '1px solid #2d3458' },
   cardTitle: { flex: 1, color: '#e2e8f0', fontSize: 12, fontWeight: 600, overflow: 'hidden', whiteSpace: 'nowrap' },
   cardBody: { padding: 9 },
-  delayBadge: { fontSize: 10, color: '#3b82f6', background: 'rgba(59,130,246,0.15)', borderRadius: 4, padding: '1px 5px' },
   smallButton: { background: 'transparent', border: 'none', color: '#718096', fontSize: 13, cursor: 'pointer', padding: '0 3px' },
   typeGrid: { display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 },
   typeButton: { border: 'none', borderRadius: 5, fontSize: 11, padding: '4px 7px', cursor: 'pointer' },
@@ -216,9 +207,6 @@ const s = {
   inputGroup: { width: '100%' },
   fileButton: { display: 'inline-flex', background: '#2a2d3e', border: '1px solid #3a3f55', borderRadius: 6, color: '#a0aec0', fontSize: 12, padding: '5px 9px', cursor: 'pointer', marginBottom: 7 },
   checkRow: { display: 'flex', alignItems: 'center', gap: 7, color: '#a0aec0', fontSize: 12, cursor: 'pointer', marginBottom: 6 },
-  delayRow: { display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 },
-  delayLabel: { color: '#718096', fontSize: 12 },
-  numberInput: { width: 48, marginLeft: 'auto', background: '#12131a', border: '1px solid #3a3f55', borderRadius: 5, color: '#e2e8f0', fontSize: 13, padding: '4px 6px', textAlign: 'center', outline: 'none' },
   error: { color: '#fc8181', fontSize: 11, marginTop: 5 },
   note: { color: '#718096', fontSize: 11, lineHeight: 1.5, marginTop: 5 },
 };

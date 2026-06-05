@@ -694,7 +694,8 @@ class TelegramRuntime {
     if (!bot) return;
     const node = bot.nodes.find(item => item.id === sequence.nodeId);
     if (!node) return;
-    const items = node.type === 'messageChainNode' ? (node.data.messages || []) : (node.data.items || []);
+    if (node.type !== 'messageChainNode') return;
+    const items = node.data.messages || [];
     await this.runContentSequence(chatId, node, items, sequence.itemIndex || 0, transient, true);
   }
 
@@ -842,9 +843,16 @@ class TelegramRuntime {
 
         case 'mediaNode': {
           const items = node.data.items || [];
-          const album = node.data.asAlbum && items.length >= 2 && items.length <= 10 && items.every(i => (i.type === 'photo' || i.type === 'video') && i.url && !i.asVideoNote);
-          if (album) await this.sendMediaGroup(chatId, items);
-          else { await this.runContentSequence(chatId, node, items, 0, transient); return; }
+          const album = node.data.asAlbum && items.filter(i => (i.type === 'photo' || i.type === 'video') && i.url && !i.asVideoNote);
+          if (album && album.length >= 2 && album.length <= 10 && album.length === items.length) {
+            await this.sendMediaGroup(chatId, items);
+          } else {
+            const vars = this.templateVars(session);
+            for (const item of items) {
+              const sent = await this.sendContent(chatId, item, vars, node.id);
+              if (sent?.message_id) session.lastMessageId = sent.message_id;
+            }
+          }
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);
           break;
         }
