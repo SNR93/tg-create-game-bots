@@ -10,7 +10,7 @@ import React, { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { BoolButtons } from './VariableInspector';
 import CountedInput from './CountedInput';
-import { EDITOR_LIMITS } from '../../telegramLimits';
+import { EDITOR_LIMITS, TELEGRAM_LIMITS } from '../../telegramLimits';
 
 // Sources that conditions can check
 const SOURCES = [
@@ -93,7 +93,7 @@ function BranchCard({ branch, index, total, botVariables, onPatch, onDel, onMove
     <div style={s.card}>
       <div style={s.cardHead}>
         <button style={s.colBtn} onClick={() => setOpen(v => !v)}>{open ? '▾' : '▸'}</button>
-        <CountedInput style={s.labelInp} groupStyle={{ flex: 1 }} value={branch.label || ''} maxLength={EDITOR_LIMITS.shortText}
+        <CountedInput style={s.labelInp} groupStyle={{ flex: 1 }} value={branch.label || ''} maxLength={TELEGRAM_LIMITS.inlineButtonLabel}
           placeholder={`Ветка ${index + 1}`} onChange={e => onPatch({ label: e.target.value })} onKeyDown={e => e.stopPropagation()} />
         {isElse && <span style={s.elseBadge}>иначе</span>}
         <button style={s.ctrl} onClick={() => onMove('up')}   disabled={index === 0}>↑</button>

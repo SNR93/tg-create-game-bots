@@ -6,7 +6,7 @@
  * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ReactFlow, Background, Controls, MiniMap,
@@ -709,8 +709,12 @@ export default function EditorPage({ user }) {
   const [botLore, setBotLore]                     = useState({ text: '' });
   const [telegramToken, setTelegramToken]     = useState('');
   const [telegramError, setTelegramError]     = useState('');
+  const [connectFromHandleModal, setConnectFromHandleModal] = useState(null);
+  const [validateResult, setValidateResult]       = useState(null);
+  const [errorHighlightNodeId, setErrorHighlightNodeId] = useState(null);
 
   const rfRef = useRef(null);
+  const canvasRef = useRef(null);
 
   // Stable refs
   const snapshotsRef = useRef(snapshots);
@@ -841,6 +845,82 @@ export default function EditorPage({ user }) {
 
   const pendingConnRef = useRef(null);
 
+  // While dragging a connection line:
+  //   • hold MMB + move mouse → pan the viewport
+  //   • scroll wheel          → zoom (ReactFlow default, not intercepted)
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+
+    let mmb = null; // { mouseX, mouseY, vpX, vpY }
+
+    function handleMouseDown(e) {
+      if (e.button !== 1) return;
+      if (!pendingConnRef.current || !rfRef.current) return;
+      e.preventDefault(); // prevent browser autoscroll cursor
+      e.stopPropagation();
+      const { x, y } = rfRef.current.getViewport();
+      mmb = { mouseX: e.clientX, mouseY: e.clientY, vpX: x, vpY: y };
+    }
+
+    function handleMouseMove(e) {
+      if (!mmb || !rfRef.current) return;
+      if (!pendingConnRef.current) { mmb = null; return; }
+      const dx = e.clientX - mmb.mouseX;
+      const dy = e.clientY - mmb.mouseY;
+      const { zoom } = rfRef.current.getViewport();
+      rfRef.current.setViewport({ x: mmb.vpX + dx, y: mmb.vpY + dy, zoom }, { duration: 0 });
+    }
+
+    function handleMouseUp(e) {
+      if (e.button === 1) {
+        mmb = null;
+        if (pendingConnRef.current) e.stopPropagation();
+        return;
+      }
+      if (e.button !== 0 && pendingConnRef.current) e.stopPropagation();
+    }
+
+    el.addEventListener('mousedown', handleMouseDown, true);
+    el.addEventListener('mousemove', handleMouseMove, true);
+    el.addEventListener('mouseup',   handleMouseUp,   true);
+    el.addEventListener('pointerup', handleMouseUp,   true);
+    return () => {
+      el.removeEventListener('mousedown', handleMouseDown, true);
+      el.removeEventListener('mousemove', handleMouseMove, true);
+      el.removeEventListener('mouseup',   handleMouseUp,   true);
+      el.removeEventListener('pointerup', handleMouseUp,   true);
+    };
+  }, [!!bot]);
+
+  // Double-click on source handle → open "connect to node" modal (task 1).
+  // Uses mousedown in capture phase with manual interval tracking because ReactFlow
+  // intercepts handle events before dblclick can bubble up to the canvas element.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    let lastDown = { nodeId: null, handleId: null, time: 0 };
+    function handleMouseDown(e) {
+      if (!canEdit || e.button !== 0) return;
+      const handle = e.target.closest('.react-flow__handle');
+      if (!handle || handle.classList.contains('react-flow__handle-target')) return;
+      const nodeId  = handle.getAttribute('data-nodeid');
+      const handleId = handle.getAttribute('data-handleid');
+      if (!nodeId) return;
+      const now = Date.now();
+      if (lastDown.nodeId === nodeId && lastDown.handleId === handleId && now - lastDown.time < 400) {
+        lastDown = { nodeId: null, handleId: null, time: 0 };
+        if (!canConnectFrom(edgesRef.current, nodesRef.current, nodeId, handleId)) return;
+        e.stopPropagation(); // prevent ReactFlow from starting a drag on the second click
+        setConnectFromHandleModal({ source: nodeId, sourceHandle: handleId ?? null });
+        return;
+      }
+      lastDown = { nodeId, handleId, time: now };
+    }
+    el.addEventListener('mousedown', handleMouseDown, true);
+    return () => el.removeEventListener('mousedown', handleMouseDown, true);
+  }, [canEdit, !!bot]);
+
   const onConnectStart = useCallback((event, params) => {
     const target = event?.target;
     const handleType = params.handleType || (target?.classList?.contains('react-flow__handle-target') ? 'target' : 'source');
@@ -862,6 +942,8 @@ export default function EditorPage({ user }) {
   // KEY FIX: do NOT use onPaneClick to close contextMenu — it fires after onConnectEnd
   const onConnectEnd = useCallback((event) => {
     if (!pendingConnRef.current) return;
+    // Middle/right button release during drag — ignore, pointerup capture handler keeps drag alive.
+    if (event?.button !== undefined && event.button !== 0) { return; }
     const target = event.target;
     if (target?.closest?.('.react-flow__node') || target?.closest?.('.react-flow__handle')) {
       pendingConnRef.current = null; return;
@@ -1315,11 +1397,15 @@ export default function EditorPage({ user }) {
   const placeholderVariables = { ...SYSTEM_PLACEHOLDER_VARIABLES, ...allBotVariables };
   const botVariables = inspectorNode ? varsBeforeNode(nodes, edges, inspectorNode.id) : allBotVariables;
   const simulatorVariables = simulatorStartNodeId ? varsBeforeNode(nodes, edges, simulatorStartNodeId) : {};
-  const displayedNodes = highlightedNodeId
-    ? nodes.map(node => node.id === highlightedNodeId
-      ? { ...node, className: `${node.className || ''} node-search-highlight`.trim() }
-      : { ...node, className: (node.className || '').replace(/\bnode-search-highlight\b/g, '').trim() || undefined })
-    : nodes;
+  const displayedNodes = nodes.map(node => {
+    let cls = (node.className || '')
+      .replace(/\bnode-search-highlight\b/g, '')
+      .replace(/\bnode-error-highlight\b/g, '')
+      .trim();
+    if (node.id === highlightedNodeId) cls = `${cls} node-search-highlight`.trim();
+    if (node.id === errorHighlightNodeId) cls = `${cls} node-error-highlight`.trim();
+    return cls !== (node.className || '').trim() ? { ...node, className: cls || undefined } : node;
+  });
   const selectedNodeIdSet = new Set(selectedNodeIds);
   const displayedEdges = edges.map(edge => {
     const normalized = normalizeEdge(edge, nodes);
@@ -1337,8 +1423,30 @@ export default function EditorPage({ user }) {
   };
   const handleValidate = () => {
     const issues = validateScenario(nodes, edges);
-    alert(issues.length ? `Проверка сценария:\n\n${issues.join('\n')}` : 'Проверка пройдена: проблем не найдено.');
+    const workEdges = edges.filter(e => !e.data?.isComment);
+    const disconnectedKeyboards = nodes
+      .filter(n => n.type === 'keyboardNode')
+      .flatMap(n => {
+        const unconnected = (n.data.buttons || [])
+          .filter(b => (b.type || 'callback') === 'callback')
+          .filter(b => !workEdges.some(e =>
+            e.source === n.id &&
+            (e.sourceHandle === `left-${b.id}` || e.sourceHandle === `right-${b.id}`)
+          ));
+        return unconnected.length ? [{ node: n, unconnected }] : [];
+      });
+    setValidateResult({ issues, disconnectedKeyboards });
   };
+
+  function navigateToNode(nodeId) {
+    const node = nodesRef.current.find(n => n.id === nodeId);
+    if (!node || !rfRef.current) return;
+    const w = node.measured?.width || 240;
+    const h = node.measured?.height || 120;
+    rfRef.current.setCenter(node.position.x + w / 2, node.position.y + h / 2, { zoom: 1.1, duration: 500 });
+    setErrorHighlightNodeId(nodeId);
+    setTimeout(() => setErrorHighlightNodeId(null), 3000);
+  }
 
   return (
     <div style={s.page}>
@@ -1485,7 +1593,7 @@ export default function EditorPage({ user }) {
       {/* Workspace */}
       <div style={s.workspace}>
         <NodePanel onAddNode={handleAddNodeFromPanel} />
-        <div style={s.canvas}>
+        <div style={s.canvas} ref={canvasRef}>
           <NodeDebugContext.Provider value={openSimulator}>
             <ReactFlow
               nodes={displayedNodes} edges={displayedEdges}
@@ -1503,6 +1611,7 @@ export default function EditorPage({ user }) {
               defaultEdgeOptions={EDGE_DEFAULTS}
               proOptions={{ hideAttribution: true }}
               fitView deleteKeyCode={null}
+              minZoom={0.05}
               nodesDraggable={canEdit}
               nodesConnectable={canEdit}
               selectionKeyCode="Control" multiSelectionKeyCode="Control"
@@ -1511,7 +1620,9 @@ export default function EditorPage({ user }) {
             >
               <Background variant={BackgroundVariant.Dots} color="#2a2d3e" gap={24} size={1} />
               <Controls style={{ background: '#1e2030', border: '1px solid #2d3458' }} />
-              <MiniMap pannable zoomable style={{ background: '#1a1c2a', border: '1px solid #2d3458' }} nodeColor="#3a3f55" maskColor="rgba(18,19,26,0.75)" />
+              <MiniMap pannable zoomable style={{ background: '#1a1c2a', border: '1px solid #2d3458' }}
+                nodeColor={n => n.type === 'groupNode' ? (n.data?.color || '#3b82f6') : '#3a3f55'}
+                maskColor="rgba(18,19,26,0.75)" />
             </ReactFlow>
           </NodeDebugContext.Provider>
 
@@ -1631,12 +1742,147 @@ export default function EditorPage({ user }) {
       {showLore && <LoreModal lore={botLore} onChange={setBotLore} onClose={() => setShowLore(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
+      {connectFromHandleModal && (
+        <ConnectFromHandleModal
+          source={connectFromHandleModal.source}
+          sourceHandle={connectFromHandleModal.sourceHandle}
+          nodes={nodes}
+          edges={edges}
+          onConnect={(targetId) => {
+            const { source, sourceHandle } = connectFromHandleModal;
+            setEdges(eds => {
+              if (!canConnectFrom(eds, nodesRef.current, source, sourceHandle)) return eds;
+              return addEdge(normalizeEdge({ id: uuidv4(), source, sourceHandle, target: targetId }, nodesRef.current), eds);
+            });
+          }}
+          onClose={() => setConnectFromHandleModal(null)}
+        />
+      )}
+
+      {validateResult && (
+        <ValidateModal
+          result={validateResult}
+          onNavigate={(nodeId) => { navigateToNode(nodeId); }}
+          onClose={() => setValidateResult(null)}
+        />
+      )}
+
       <div style={s.hint}>
-        ПКМ / тяни связь в пустоту — добавить · двойной клик по связи — разорвать · Ctrl+S — сохранить · Ctrl+Z/Y — undo/redo · Del — удалить
+        ПКМ / тяни связь в пустоту — добавить · двойной клик по связи — разорвать · двойной клик по выходу — подключить к ноде · колесо при перетаскивании — прокрутка холста · Ctrl+S — сохранить · Ctrl+Z/Y — undo/redo · Del — удалить
       </div>
     </div>
   );
 }
+
+function ConnectFromHandleModal({ source, sourceHandle, nodes, edges, onConnect, onClose }) {
+  const [query, setQuery] = useState('');
+  const candidates = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    const all = nodes.filter(n => n.id !== source && n.type !== 'commentNode' && n.type !== 'groupNode');
+    if (!q) return all;
+    return all.filter(n => {
+      const text = [n.data?.title, n.data?.nodeId, n.id].filter(Boolean).join(' ').toLowerCase();
+      return text.includes(q);
+    });
+  }, [nodes, source, query]);
+
+  return (
+    <div style={cm.overlay} onMouseDown={onClose}>
+      <div style={cm.modal} onMouseDown={e => e.stopPropagation()}>
+        <div style={cm.header}>Подключить выход к ноде</div>
+        <input
+          autoFocus
+          style={cm.input}
+          placeholder="Поиск по названию, ID..."
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') onClose(); }}
+        />
+        <div style={cm.list}>
+          {candidates.length === 0 && <div style={cm.empty}>Ничего не найдено</div>}
+          {candidates.slice(0, 40).map(n => {
+            const meta = getNodeMeta(n.type);
+            return (
+              <div key={n.id} style={cm.item}
+                onMouseEnter={e => e.currentTarget.style.background = '#252a42'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => { onConnect(n.id); onClose(); }}>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>{meta?.icon || '▪'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    {n.data?.title || meta?.label || n.type}
+                  </div>
+                </div>
+                {n.data?.nodeId && <span style={{ color: '#4a5568', fontSize: 10, flexShrink: 0 }}>#{n.data.nodeId}</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const cm = {
+  overlay: { position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  modal:   { width: 'min(480px, 92vw)', background: '#1a1c2a', border: '1px solid #3b82f6', borderRadius: 12, padding: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: 10 },
+  header:  { color: '#e2e8f0', fontSize: 15, fontWeight: 700 },
+  input:   { width: '100%', background: '#12131a', border: '1px solid #3a3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 13, padding: '8px 10px', outline: 'none' },
+  list:    { maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 },
+  item:    { display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#e2e8f0' },
+  empty:   { color: '#4a5568', fontSize: 12, padding: '8px 10px' },
+};
+
+function ValidateModal({ result, onNavigate, onClose }) {
+  const { issues, disconnectedKeyboards } = result;
+  const hasErrors = issues.length > 0 || disconnectedKeyboards.length > 0;
+  return (
+    <div style={vm.overlay} onMouseDown={onClose}>
+      <div style={vm.modal} onMouseDown={e => e.stopPropagation()}>
+        <div style={vm.header}>
+          <span>{hasErrors ? '⚠ Результаты проверки' : '✓ Проверка пройдена'}</span>
+          <button style={vm.close} onClick={onClose}>×</button>
+        </div>
+        {!hasErrors && <div style={{ color: '#68d391', fontSize: 13 }}>Проблем не найдено.</div>}
+        {disconnectedKeyboards.length > 0 && (
+          <div>
+            <div style={vm.section}>Ноды «Выбор игрока» с незаполненными выходами ({disconnectedKeyboards.length}):</div>
+            {disconnectedKeyboards.map(({ node, unconnected }) => (
+              <div key={node.id} style={vm.errorNode}
+                onClick={() => onNavigate(node.id)}
+                onMouseEnter={e => e.currentTarget.style.background = '#2a1a1a'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <div style={vm.nodeName}>{node.data?.title || node.id}</div>
+                <div style={vm.nodeDetail}>Незакрытые выходы: {unconnected.map(b => `«${b.label || '?'}»`).join(', ')}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {issues.length > 0 && (
+          <div>
+            <div style={vm.section}>Другие предупреждения ({issues.length}):</div>
+            <div style={vm.issueList}>
+              {issues.map((issue, i) => <div key={i} style={vm.issue}>{issue}</div>)}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const vm = {
+  overlay:  { position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  modal:    { width: 'min(620px, 92vw)', maxHeight: '80vh', background: '#1a1c2a', border: '1px solid #2d3458', borderRadius: 12, padding: 20, boxShadow: '0 12px 40px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' },
+  header:   { display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#e2e8f0', fontSize: 16, fontWeight: 700 },
+  close:    { background: 'transparent', border: 'none', color: '#718096', fontSize: 22, cursor: 'pointer', padding: '0 4px' },
+  section:  { fontSize: 12, fontWeight: 700, color: '#f6ad55', marginBottom: 8 },
+  errorNode:{ background: 'transparent', border: '1px solid #744210', borderRadius: 7, padding: '8px 12px', marginBottom: 6, cursor: 'pointer' },
+  nodeName: { color: '#fbd38d', fontSize: 13, fontWeight: 600 },
+  nodeDetail:{ color: '#f6ad55', fontSize: 11, marginTop: 2 },
+  issueList: { maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 },
+  issue:    { fontSize: 12, color: '#cbd5e0', padding: '4px 0', borderBottom: '1px solid #1e2030' },
+};
 
 const s = {
   page:      { height: '100vh', display: 'flex', flexDirection: 'column', background: '#12131a' },

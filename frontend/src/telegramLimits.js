@@ -18,6 +18,7 @@ export const TELEGRAM_LIMITS = {
   pollQuestion: 300,
   pollOption: 100,
   inlineKeyboardButtons: 100,
+  inlineButtonLabel: 64,
   imageBytes: 5 * MB,
   audioBytes: 10 * MB,
   videoBytes: 50 * MB,

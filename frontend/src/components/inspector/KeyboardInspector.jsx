@@ -201,7 +201,7 @@ function ButtonCard({ btn, index, total, botVariables, suggestions, systemNames,
           <option value="url">URL</option>
         </select>
         <PlaceholderField style={{ ...s.inp, flex: 1 }} value={btn.label || ''}
-          maxLength={EDITOR_LIMITS.shortText}
+          maxLength={TELEGRAM_LIMITS.inlineButtonLabel}
           onChange={e => onPatch({ label: e.target.value })} onKeyDown={e => e.stopPropagation()} />
         <button style={{ ...s.ctrl, color: condEnabled ? '#38bdf8' : '#4a5568' }} title="Условие показа"
           onClick={() => setShowCond(v => !v)}>⚙</button>

@@ -994,7 +994,8 @@ class TelegramRuntime {
               await playerStore.saveVariables(this.botId, session.playerId, session.vars);
             }
             if (node.data.notify !== false) {
-              const text = `Достижение: ${this.interp(node.data.title || node.data.achievementKey, this.templateVars(session), chatId, node.id)}`;
+              const achievementTitle = this.interp(node.data.title || node.data.achievementKey, this.templateVars(session), chatId, node.id);
+              const text = `🏆 Достижение: ${achievementTitle}`;
               await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });
             }
           }
@@ -1196,7 +1197,7 @@ class TelegramRuntime {
             session.vars[name] = { type: 'boolean', value: entry.value !== false };
             if (entry.value !== false) {
               const notifyText = this.interp(entry.notifyText ?? 'Кодекс обновлен', this.templateVars(session), chatId, node.id);
-              await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(notifyText) });
+              await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(`📖 ${notifyText}`) });
             }
           }
           if (unlockEntries.length > 0) await playerStore.saveVariables(this.botId, session.playerId, session.vars);
