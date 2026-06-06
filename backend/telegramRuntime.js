@@ -1213,6 +1213,8 @@ class TelegramRuntime {
             if (!name) continue;
             const text = this.interp(entry.text || '', this.templateVars(session), chatId, node.id);
             session.vars[name] = { type: 'text', value: text };
+            const notifyText = this.interp(entry.notifyText ?? 'Кодекс дополнен', this.templateVars(session), chatId, node.id);
+            await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(`📖 ${notifyText}`) });
           }
           if (editEntries.length > 0) await playerStore.saveVariables(this.botId, session.playerId, session.vars);
           nodeId = getNext(bot.edges, bot.nodes, node.id, 'continue') || getNext(bot.edges, bot.nodes, node.id);

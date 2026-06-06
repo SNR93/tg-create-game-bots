@@ -1059,18 +1059,23 @@ export function EditCodexInspector({ data, onUpdate, nodes = [] }) {
   const [defaultId] = useState(() => uuidv4());
   const entries = data.entries || [{ id: defaultId, codexKey: '', text: '' }];
 
-  const codexKeys = useMemo(() => {
+  const { codexKeys, codexTextMap } = useMemo(() => {
     const keys = new Set();
+    const textMap = {};
     for (const node of nodes) {
       if (node.type !== 'codexNode') continue;
       const nodeEntries = node.data?.entries?.length > 0
         ? node.data.entries
-        : node.data?.codexKey ? [{ codexKey: node.data.codexKey }] : [];
+        : node.data?.codexKey ? [{ codexKey: node.data.codexKey, text: node.data.text || '' }] : [];
       for (const e of nodeEntries) {
-        if (e.codexKey) keys.add(String(e.codexKey).replace(/^codex\./i, ''));
+        if (e.codexKey) {
+          const k = String(e.codexKey).replace(/^codex\./i, '');
+          keys.add(k);
+          textMap[k] = e.text || '';
+        }
       }
     }
-    return [...keys];
+    return { codexKeys: [...keys], codexTextMap: textMap };
   }, [nodes]);
 
   const [openIdx, setOpenIdx] = useState(null);
@@ -1100,7 +1105,7 @@ export function EditCodexInspector({ data, onUpdate, nodes = [] }) {
                     <div key={k} style={sd.item}
                       onMouseEnter={e => e.currentTarget.style.background = '#2a2d3e'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                      onMouseDown={() => { patch(entry.id, { codexKey: k }); setOpenIdx(null); }}>
+                      onMouseDown={() => { patch(entry.id, { codexKey: k, text: codexTextMap[k] ?? entry.text }); setOpenIdx(null); }}>
                       codex.{k}
                     </div>
                   ))}
@@ -1118,6 +1123,17 @@ export function EditCodexInspector({ data, onUpdate, nodes = [] }) {
             {entry.codexKey && !codexKeys.includes(entry.codexKey) && (
               <div style={{ color: '#f6ad55', fontSize: 11 }}>Ключ «{entry.codexKey}» не найден среди нод Кодекс на схеме.</div>
             )}
+            <div style={s.fieldLabel}>Сообщение при изменении</div>
+            <PlaceholderField
+              as="textarea"
+              rows={2}
+              value={entry.notifyText ?? ''}
+              placeholder="Кодекс дополнен"
+              maxLength={TELEGRAM_LIMITS.messageText}
+              style={{ ...s.input, flex: 'none', width: '100%', resize: 'vertical', minHeight: 48 }}
+              onChange={e => patch(entry.id, { notifyText: e.target.value })}
+            />
+            <div style={s.hint}>Отправляется игроку при изменении записи. Поддерживает {'{{переменные}}'}. Если пусто — отправляется «Кодекс дополнен».</div>
           </div>
         </div>
       ))}
