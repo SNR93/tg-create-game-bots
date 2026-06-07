@@ -86,6 +86,36 @@ function telegramTextPayload(text) {
   return { text: html, parse_mode: 'HTML' };
 }
 
+// Remove lines that were only {{...}} placeholders but resolved to empty after interpolation.
+function collapseEmptyPlaceholderLines(original, interpolated) {
+  const origLines = original.split('\n');
+  const interpLines = interpolated.split('\n');
+  const result = [];
+  for (let i = 0; i < interpLines.length; i++) {
+    const origLine = origLines[i] ?? '';
+    const interpLine = interpLines[i] ?? '';
+    const wasOnlyPlaceholders = /^\s*(\{\{[^{}]+\}\}\s*)+$/.test(origLine);
+    if (wasOnlyPlaceholders && interpLine.trim() === '') continue;
+    result.push(interpLine);
+  }
+  return result.join('\n');
+}
+
+// Split long text into chunks of at most maxLen, preferring newline boundaries.
+function splitTextChunks(text, maxLen) {
+  if (text.length <= maxLen) return [text];
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > maxLen) {
+    let cut = remaining.lastIndexOf('\n', maxLen);
+    if (cut < Math.floor(maxLen / 2)) cut = maxLen;
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut).replace(/^\n/, '');
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
 function parseRewardValue(rawValue, type) {
   if (type === 'number') return Number.isFinite(Number(rawValue)) ? Number(rawValue) : 0;
   if (type === 'boolean') return rawValue === true || rawValue === 'true';
@@ -209,7 +239,7 @@ class TelegramRuntime {
     const missing = [];
     const result = interpolate(text, vars, k => missing.push(k));
     if (missing.length) this.addLog('warn', `Чат ${chatId}${nodeId ? ` нода ${nodeId}` : ''}: переменные не найдены — ${missing.join(', ')}`);
-    return result;
+    return collapseEmptyPlaceholderLines(String(text || ''), result);
   }
 
   templateVars(session) {
@@ -649,8 +679,12 @@ class TelegramRuntime {
     const type = data.type || 'text';
     if (type === 'text') {
       const text = this.interp(data.text, vars, chatId, nodeId) || ' ';
-      assertText(text, TELEGRAM_LIMITS.messageText, 'Текст сообщения');
-      return this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(text) });
+      const chunks = splitTextChunks(text, TELEGRAM_LIMITS.messageText);
+      let sent;
+      for (const chunk of chunks) {
+        sent = await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(chunk) });
+      }
+      return sent;
     }
     const map = { photo: ['sendPhoto', 'photo'], video: data.asVideoNote ? ['sendVideoNote', 'video_note'] : ['sendVideo', 'video'], voice: ['sendVoice', 'voice'], audio: ['sendVoice', 'voice'], document: ['sendDocument', 'document'] };
     const media = map[type];

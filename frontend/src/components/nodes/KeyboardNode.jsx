@@ -128,7 +128,7 @@ export default function KeyboardNode({ id, data, selected }) {
 const s = {
   wrap: {
     position: 'relative',       // makes wrap the offsetParent for child rows
-    background: '#2a2d3e', borderRadius: 10, minWidth: 220,
+    background: '#2a2d3e', borderRadius: 10, minWidth: 220, maxWidth: 300,
     overflow: 'visible', transition: 'border-color .15s, box-shadow .15s',
   },
   header: {
@@ -143,7 +143,7 @@ const s = {
     padding: '9px 14px', borderBottom: '1px solid #2d3250', minHeight: 38,
   },
   conditionGear: { color: '#38bdf8', fontSize: 12, lineHeight: 1, flexShrink: 0 },
-  label: { flex: 1, fontSize: 13, color: '#cbd5e0' },
+  label: { flex: 1, fontSize: 13, color: '#cbd5e0', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0 },
   arrow: { fontSize: 9, color: '#38bdf8' },
   hIn: {
     background: '#38bdf8', border: '2px solid #0f172a',
