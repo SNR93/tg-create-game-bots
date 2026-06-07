@@ -213,6 +213,20 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_purchases_player ON purchases(bot_id, telegram_user_id, created_at DESC);
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_node_history (
+      id BIGSERIAL PRIMARY KEY,
+      bot_id TEXT NOT NULL,
+      telegram_user_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      node_type TEXT NOT NULL DEFAULT '',
+      node_label TEXT NOT NULL DEFAULT '',
+      entered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      FOREIGN KEY (bot_id, telegram_user_id) REFERENCES players(bot_id, telegram_user_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_node_history_player ON player_node_history(bot_id, telegram_user_id, entered_at DESC);
+  `);
+
   // Migrate project_roles: add comment column and expand role CHECK to include 'denied'
   await pool.query(`ALTER TABLE project_roles ADD COLUMN IF NOT EXISTS comment TEXT NOT NULL DEFAULT ''`);
   await pool.query(`

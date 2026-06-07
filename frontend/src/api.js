@@ -407,6 +407,18 @@ export function resetBotPlayer(id, playerId) {
   return adminRequest(id, `/players/${encodeURIComponent(playerId)}/reset`, { method: 'POST' });
 }
 
+export function getBotPlayerNodeHistory(id, playerId) {
+  return adminRequest(id, `/players/${encodeURIComponent(playerId)}/node-history`);
+}
+
+export function rollbackBotPlayer(id, playerId, nodeId) {
+  return adminRequest(id, `/players/${encodeURIComponent(playerId)}/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nodeId }),
+  });
+}
+
 export function deleteBotPlayer(id, playerId) {
   return adminRequest(id, `/players/${encodeURIComponent(playerId)}`, { method: 'DELETE' });
 }

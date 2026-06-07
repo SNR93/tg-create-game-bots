@@ -25,6 +25,7 @@ import {
   deleteBotRole,
   getBotAnalytics,
   getBotPlayer,
+  getBotPlayerNodeHistory,
   listBotGlobals,
   listBotPlayers,
   listBotBackups,
@@ -36,6 +37,7 @@ import {
   publishBotVersion,
   resetBotPlayer,
   restoreBotBackup,
+  rollbackBotPlayer,
   setBotGlobal,
   setBotPlayerInventoryItem,
   setBotPlayerAchievement,
@@ -445,6 +447,8 @@ export default function AdminPanel({ botId, onClose }) {
                 <InventorySection botId={botId} player={player} busy={busy} run={run} />
                 <RelationSection botId={botId} player={player} busy={busy} run={run} />
                 <AchievementSection botId={botId} player={player} busy={busy} run={run} />
+
+                <NodeHistorySection botId={botId} player={player} busy={busy} run={run} />
 
                 <Section title={`Журнал выборов (${player.choices.length})`}>
                   {player.choices.length === 0 && <div style={s.empty}>Выборов пока нет.</div>}
@@ -1177,6 +1181,61 @@ function StatSection({ title, items = [], label }) {
 
 function SimpleRows({ title, items = [], render, onDelete, action }) {
   return <Section title={title}>{items.length === 0 && <div style={s.empty}>Пока пусто.</div>}{items.map((item, index) => <div key={item.id || item.code || item.product_key || index} style={s.editRow}><span style={s.key}>{render(item)}</span>{action?.(item)}{onDelete && <button style={s.iconDanger} onClick={() => onDelete(item)}>×</button>}</div>)}</Section>;
+}
+
+const NODE_TYPE_LABELS = {
+  simpleMessageNode: 'Сообщение', messageChainNode: 'Цепочка', keyboardNode: 'Клавиатура',
+  mediaNode: 'Медиа', pollNode: 'Опрос', textInputNode: 'Ввод', delayNode: 'Задержка',
+  stickerNode: 'Стикер', locationNode: 'Локация', editMessageNode: 'Правка сообщ.',
+  purchaseNode: 'Покупка', starsShopNode: 'Stars', promocodeNode: 'Промокод',
+  subscriptionCheckNode: 'Подписка', applicationNode: 'Анкета',
+};
+
+function NodeHistorySection({ botId, player, busy, run }) {
+  const [history, setHistory] = useState(null);
+  const [open, setOpen] = useState(false);
+
+  async function load() {
+    if (history !== null) { setOpen(v => !v); return; }
+    try {
+      const data = await getBotPlayerNodeHistory(botId, player.telegram_user_id);
+      setHistory(data);
+      setOpen(true);
+    } catch {}
+  }
+
+  async function handleRollback(nodeId, label) {
+    if (!confirm(`Откатить игрока к ноде «${label || nodeId}»?\nЕго текущая сессия будет сброшена и при следующем сообщении он окажется на этой ноде.`)) return;
+    await run(() => rollbackBotPlayer(botId, player.telegram_user_id, nodeId));
+    setHistory(null);
+    setOpen(false);
+  }
+
+  return (
+    <section style={s.section}>
+      <div style={{ ...s.sectionTitle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span>История посещённых нод</span>
+        <button style={s.secondary} disabled={busy} onClick={load}>{open ? 'Скрыть' : 'Показать'}</button>
+      </div>
+      {open && (
+        history === null
+          ? <div style={s.empty}>Загрузка…</div>
+          : history.length === 0
+            ? <div style={s.empty}>История пуста — игрок ещё не проходил сцены.</div>
+            : history.map(entry => (
+              <div key={entry.id} style={s.editRow}>
+                <span style={s.logTime}>{new Date(entry.entered_at).toLocaleString('ru')}</span>
+                <span style={{ ...s.logText, flex: 1 }}>
+                  {NODE_TYPE_LABELS[entry.node_type] || entry.node_type}
+                  {entry.node_label ? ` · ${entry.node_label}` : ''}
+                </span>
+                <span style={{ ...s.logNode, fontFamily: 'monospace', fontSize: 10 }}>{entry.node_id.slice(0, 8)}</span>
+                <button style={s.secondary} disabled={busy} onClick={() => handleRollback(entry.node_id, entry.node_label)}>Откатить</button>
+              </div>
+            ))
+      )}
+    </section>
+  );
 }
 
 function Section({ title, children }) {

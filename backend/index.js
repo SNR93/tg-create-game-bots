@@ -1212,6 +1212,23 @@ app.post('/api/bots/:id/admin/players/:playerId/reset', asyncRoute(async (req, r
   res.json(await playerStore.loadPlayer(req.params.id, req.params.playerId));
 }));
 
+app.get('/api/bots/:id/admin/players/:playerId/node-history', asyncRoute(async (req, res) => {
+  if (!botExists(req.params.id)) return res.status(404).json({ error: 'Bot not found' });
+  const history = await playerStore.getNodeHistory(req.params.id, req.params.playerId);
+  res.json(history);
+}));
+
+app.post('/api/bots/:id/admin/players/:playerId/rollback', asyncRoute(async (req, res) => {
+  const { nodeId } = req.body;
+  if (!nodeId) return res.status(400).json({ error: 'nodeId required' });
+  if (!botExists(req.params.id)) return res.status(404).json({ error: 'Bot not found' });
+  const player = await playerStore.loadPlayer(req.params.id, req.params.playerId);
+  if (!player) return res.status(404).json({ error: 'Player not found' });
+  await playerStore.setCurrentNode(req.params.id, req.params.playerId, nodeId);
+  await telegramRuntime.removePlayerSession(req.params.id, player.chat_id);
+  res.json({ ok: true });
+}));
+
 app.delete('/api/bots/:id/admin/players/:playerId', asyncRoute(async (req, res) => {
   const player = await playerStore.deletePlayer(req.params.id, req.params.playerId);
   await telegramRuntime.removePlayerSession(req.params.id, player?.chat_id);

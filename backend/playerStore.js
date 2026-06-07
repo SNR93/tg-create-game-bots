@@ -352,6 +352,27 @@ async function deletePlayer(botId, playerId) {
   }
 }
 
+async function recordNodeHistory(botId, playerId, nodeId, nodeType, nodeLabel) {
+  await pool.query(
+    `INSERT INTO player_node_history (bot_id, telegram_user_id, node_id, node_type, node_label) VALUES ($1, $2, $3, $4, $5)`,
+    [botId, String(playerId), nodeId || '', nodeType || '', nodeLabel || '']
+  );
+  await pool.query(
+    `DELETE FROM player_node_history WHERE bot_id = $1 AND telegram_user_id = $2
+     AND id NOT IN (SELECT id FROM player_node_history WHERE bot_id = $1 AND telegram_user_id = $2 ORDER BY entered_at DESC LIMIT 15)`,
+    [botId, String(playerId)]
+  );
+}
+
+async function getNodeHistory(botId, playerId) {
+  const result = await pool.query(
+    `SELECT id, node_id, node_type, node_label, entered_at FROM player_node_history
+     WHERE bot_id = $1 AND telegram_user_id = $2 ORDER BY entered_at DESC LIMIT 15`,
+    [botId, String(playerId)]
+  );
+  return result.rows;
+}
+
 async function recordChoice(botId, playerId, nodeId, key, label) {
   await pool.query(`
     INSERT INTO player_choices (bot_id, telegram_user_id, node_id, choice_key, choice_label)
@@ -405,8 +426,10 @@ module.exports = {
   ensurePlayer,
   listPlayers,
   loadPlayer,
+  getNodeHistory,
   recordChoice,
   recordEvent,
+  recordNodeHistory,
   redeemPromocode,
   resetPlayer,
   saveVariables,

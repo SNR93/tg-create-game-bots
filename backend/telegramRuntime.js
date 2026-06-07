@@ -780,6 +780,8 @@ class TelegramRuntime {
         }
         if (PLAYER_FACING_NODES.has(node.type)) {
           await playerStore.setCurrentNode(this.botId, session.playerId, node.id);
+          const nodeLabel = node.data?.nodeId || node.data?.title || node.data?.text?.slice(0, 40) || '';
+          playerStore.recordNodeHistory(this.botId, session.playerId, node.id, node.type, nodeLabel).catch(() => {});
         }
       }
       await playerStore.recordEvent(this.botId, session.playerId, 'node_enter', node.id, { nodeType: node.type, transient });
