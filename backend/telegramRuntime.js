@@ -587,7 +587,12 @@ class TelegramRuntime {
     // break out of transient so the story runs normally and saves player position.
     if (transient && edge?.target) {
       const targetNode = bot.nodes.find(n => n.id === edge.target);
-      const MENU_ENTRY_TYPES = new Set(['menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode', 'commentNode', 'groupNode', 'returnNode']);
+      const MENU_ENTRY_TYPES = new Set([
+        'menuNode', 'settingsNode', 'customCommandNode', 'continueStoryNode',
+        'commentNode', 'groupNode', 'returnNode',
+        'inventoryViewNode', 'achievementsViewNode', 'codexNode',
+        'unlockCodexNode', 'editCodexNode',
+      ]);
       if (targetNode && !MENU_ENTRY_TYPES.has(targetNode.type)) transient = false;
     }
     const label = this.interp(button.label, this.templateVars(session), chatId, node.id);
@@ -765,7 +770,14 @@ class TelegramRuntime {
       if (!node) { if (transient) this.restoreTransient(session); return; }
 
       if (!transient) {
-        session.storyResumeNodeId = node.id;
+        const STORY_RESUME_SKIP = new Set([
+          'menuNode', 'settingsNode', 'customCommandNode',
+          'inventoryViewNode', 'achievementsViewNode', 'codexNode',
+          'commentNode', 'groupNode',
+        ]);
+        if (!STORY_RESUME_SKIP.has(node.type)) {
+          session.storyResumeNodeId = node.id;
+        }
         if (PLAYER_FACING_NODES.has(node.type)) {
           await playerStore.setCurrentNode(this.botId, session.playerId, node.id);
         }
