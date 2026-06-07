@@ -79,6 +79,7 @@ export default function PlaceholderField({ as = 'input', value = '', onChange, s
   function handleChange(event) {
     onChange(event);
     inspect(event.target.value, event.target.selectionStart ?? event.target.value.length);
+    requestAnimationFrame(syncMirrorScroll);
   }
 
   function insert(name) {
@@ -128,11 +129,15 @@ export default function PlaceholderField({ as = 'input', value = '', onChange, s
     }
   }
 
-  function syncScroll(event) {
-    if (mirrorRef.current) {
-      mirrorRef.current.scrollTop = event.currentTarget.scrollTop;
-      mirrorRef.current.scrollLeft = event.currentTarget.scrollLeft;
+  function syncMirrorScroll() {
+    if (mirrorRef.current && inputRef.current) {
+      mirrorRef.current.scrollLeft = inputRef.current.scrollLeft;
+      mirrorRef.current.scrollTop = inputRef.current.scrollTop;
     }
+  }
+
+  function syncScroll(event) {
+    syncMirrorScroll();
     props.onScroll?.(event);
   }
 
@@ -192,6 +197,8 @@ export default function PlaceholderField({ as = 'input', value = '', onChange, s
             props.onClick?.(event);
             inspect(event.target.value, event.target.selectionStart ?? event.target.value.length);
           }}
+          onKeyUp={() => requestAnimationFrame(syncMirrorScroll)}
+          onSelect={() => requestAnimationFrame(syncMirrorScroll)}
           onBlur={() => setTimeout(() => setQuery(null), 100)}
         />
         {query !== null && (
