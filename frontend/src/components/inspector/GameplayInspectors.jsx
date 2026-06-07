@@ -1055,13 +1055,14 @@ export function UnlockCodexInspector({ data, onUpdate, nodes = [] }) {
   );
 }
 
-export function EditCodexInspector({ data, onUpdate, nodes = [] }) {
+export function EditCodexInspector({ data, onUpdate, nodes = [], edges = [], nodeId = null }) {
   const [defaultId] = useState(() => uuidv4());
   const entries = data.entries || [{ id: defaultId, codexKey: '', text: '' }];
 
   const { codexKeys, codexTextMap } = useMemo(() => {
     const keys = new Set();
     const textMap = {};
+    // Collect original texts from codexNode
     for (const node of nodes) {
       if (node.type !== 'codexNode') continue;
       const nodeEntries = node.data?.entries?.length > 0
@@ -1075,8 +1076,44 @@ export function EditCodexInspector({ data, onUpdate, nodes = [] }) {
         }
       }
     }
+    // Override with texts from editCodexNode nodes that appear before the current node in the path
+    if (nodeId) {
+      const outgoing = new Map();
+      for (const e of edges.filter(e => !e.data?.isComment)) {
+        if (!outgoing.has(e.source)) outgoing.set(e.source, []);
+        outgoing.get(e.source).push(e.target);
+      }
+      const roots = nodes.filter(n => ['startNode', 'menuNode', 'settingsNode', 'customCommandNode'].includes(n.type));
+      function findPath(from, target, visited = new Set()) {
+        if (visited.has(from)) return null;
+        const next = [...visited, from];
+        if (from === target) return [];
+        for (const nxt of outgoing.get(from) || []) {
+          const rest = findPath(nxt, target, new Set(next));
+          if (rest !== null) return [from, ...rest];
+        }
+        return null;
+      }
+      let path = null;
+      for (const root of roots) {
+        path = findPath(root.id, nodeId);
+        if (path) break;
+      }
+      if (path) {
+        for (const pid of path) {
+          const pnode = nodes.find(n => n.id === pid);
+          if (!pnode || pnode.type !== 'editCodexNode') continue;
+          for (const e of (pnode.data?.entries || [])) {
+            if (e.codexKey && e.text) {
+              const k = String(e.codexKey).replace(/^codex\./i, '');
+              textMap[k] = e.text;
+            }
+          }
+        }
+      }
+    }
     return { codexKeys: [...keys], codexTextMap: textMap };
-  }, [nodes]);
+  }, [nodes, edges, nodeId]);
 
   const [openIdx, setOpenIdx] = useState(null);
 

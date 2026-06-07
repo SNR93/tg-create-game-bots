@@ -6,7 +6,7 @@
  * Комментарии написаны по-русски и предназначены только для поддержки кода; они не должны менять поведение приложения.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { BoolButtons } from './VariableInspector';
 import CountedInput from './CountedInput';
@@ -42,7 +42,7 @@ function emptyCond() {
   return { id: uuidv4(), source: 'variable', key: '', operator: '==', value: '' };
 }
 
-export default function BranchingInspector({ data, onUpdate, botVariables = {} }) {
+export default function BranchingInspector({ data, onUpdate, botVariables = {}, nodes = [] }) {
   const branches = data.branches || [];
   function setBranches(list) { onUpdate({ branches: list }); }
   function addBranch()      { setBranches([...branches, emptyBranch(branches.length)]); }
@@ -63,6 +63,29 @@ export default function BranchingInspector({ data, onUpdate, botVariables = {} }
     setBranches(branches.map(b => b.id !== bId ? b : { ...b, conditions: b.conditions.filter(c => c.id !== cId) }));
   }
 
+  const nodeKeys = useMemo(() => {
+    const inventory = new Set();
+    const achievement = new Set();
+    const relation = new Set();
+    for (const node of nodes) {
+      if (node.type === 'inventoryNode') {
+        for (const e of (node.data?.entries || [])) { if (e.itemKey) inventory.add(e.itemKey); }
+      }
+      if (node.type === 'achievementNode' && node.data?.achievementKey) {
+        achievement.add(node.data.achievementKey);
+      }
+      if (node.type === 'relationNode') {
+        for (const e of (node.data?.entries || [])) {
+          const key = (e.reputationType && e.reputationTarget)
+            ? `${e.reputationType}.${e.reputationTarget}`
+            : (e.characterKey || '');
+          if (key) relation.add(key);
+        }
+      }
+    }
+    return { inventory: [...inventory], achievement: [...achievement], relation: [...relation] };
+  }, [nodes]);
+
   return (
     <div>
       <Sect label={`Ветки (${branches.length})`}>
@@ -70,6 +93,7 @@ export default function BranchingInspector({ data, onUpdate, botVariables = {} }
         {branches.map((branch, i) => (
           <BranchCard key={branch.id} branch={branch} index={i} total={branches.length}
             botVariables={botVariables}
+            nodeKeys={nodeKeys}
             onPatch={p => patchBranch(branch.id, p)}
             onDel={() => delBranch(branch.id)}
             onMove={d => moveBranch(branch.id, d)}
@@ -86,7 +110,7 @@ export default function BranchingInspector({ data, onUpdate, botVariables = {} }
   );
 }
 
-function BranchCard({ branch, index, total, botVariables, onPatch, onDel, onMove, onAddCond, onPatchCond, onDelCond }) {
+function BranchCard({ branch, index, total, botVariables, nodeKeys, onPatch, onDel, onMove, onAddCond, onPatchCond, onDelCond }) {
   const [open, setOpen] = useState(true);
   const isElse = !branch.conditions || branch.conditions.length === 0;
   return (
@@ -104,7 +128,7 @@ function BranchCard({ branch, index, total, botVariables, onPatch, onDel, onMove
         <div style={s.cardBody}>
           {(branch.conditions || []).length === 0 && <div style={s.emptyHint}>Нет условий — ветка срабатывает всегда.</div>}
           {(branch.conditions || []).map(cond => (
-            <CondRow key={cond.id} cond={cond} botVariables={botVariables}
+            <CondRow key={cond.id} cond={cond} botVariables={botVariables} nodeKeys={nodeKeys}
               onPatch={p => onPatchCond(cond.id, p)}
               onDel={() => onDelCond(cond.id)} />
           ))}
@@ -115,7 +139,7 @@ function BranchCard({ branch, index, total, botVariables, onPatch, onDel, onMove
   );
 }
 
-function CondRow({ cond, botVariables, onPatch, onDel }) {
+function CondRow({ cond, botVariables, nodeKeys = {}, onPatch, onDel }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const source  = cond.source || 'variable';
   const key     = cond.key || cond.varName || '';
@@ -124,7 +148,15 @@ function CondRow({ cond, botVariables, onPatch, onDel }) {
   const isAchievement = source === 'achievement';
 
   // Key autocomplete based on source
-  const allKeys = source === 'variable' || source === 'global' ? Object.keys(botVariables) : [];
+  const allKeys = source === 'variable' || source === 'global'
+    ? Object.keys(botVariables)
+    : source === 'inventory'
+      ? (nodeKeys.inventory || [])
+      : source === 'achievement'
+        ? (nodeKeys.achievement || [])
+        : source === 'relation'
+          ? (nodeKeys.relation || [])
+          : [];
   const filtered = key ? allKeys.filter(k => k.toLowerCase().includes(key.toLowerCase())) : allKeys;
 
   const sourceBadgeColor = { variable: '#a78bfa', inventory: '#f6ad55', relation: '#f87171', achievement: '#4ade80', global: '#38bdf8' };

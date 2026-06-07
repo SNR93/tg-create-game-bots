@@ -670,6 +670,32 @@ function validateScenario(nodes, edges) {
       issues.push(`Ошибка: у покупки ${node.data.nodeId || node.id} не указан ключ товара.`);
     }
   }
+
+  const allCodexKeys = new Set();
+  for (const node of nodes) {
+    if (node.type !== 'codexNode') continue;
+    const nodeEntries = node.data?.entries?.length > 0
+      ? node.data.entries
+      : node.data?.codexKey ? [{ codexKey: node.data.codexKey }] : [];
+    for (const e of nodeEntries) {
+      const k = String(e.codexKey || '').trim().replace(/^codex\./i, '');
+      if (k) allCodexKeys.add(k);
+    }
+  }
+  const unlockedCodexKeys = new Set();
+  for (const node of nodes) {
+    if (node.type !== 'unlockCodexNode') continue;
+    for (const e of (node.data?.entries || [])) {
+      const k = String(e.codexKey || '').trim().replace(/^codex\./i, '');
+      if (k) unlockedCodexKeys.add(k);
+    }
+  }
+  for (const k of allCodexKeys) {
+    if (!unlockedCodexKeys.has(k)) {
+      issues.push(`Предупреждение: запись кодекса «codex.${k}» создана, но ни одна нода «Разблокировать кодекс» её не выдаёт.`);
+    }
+  }
+
   return issues;
 }
 
@@ -995,8 +1021,8 @@ export default function EditorPage({ user }) {
       if ('title' in data) data.title = name.trim();
       else if (type === 'variableNode') data.varName = name.trim();
     }
-    const safePosition = pendingSourceNode
-      ? findNearestFreePositionNearNode(pendingSourceNode, type, nodesRef.current, pendingConn.sourceHandle) || findFreePosition(position || { x: 300, y: 200 }, type, nodesRef.current)
+    const safePosition = (pendingSourceNode && !position)
+      ? findNearestFreePositionNearNode(pendingSourceNode, type, nodesRef.current, pendingConn.sourceHandle) || findFreePosition({ x: 300, y: 200 }, type, nodesRef.current)
       : findFreePosition(position || { x: 300, y: 200 }, type, nodesRef.current);
     const newNode = { id: nodeId, type, position: safePosition, data: { ...data, __expanded: nodesExpanded }, selected: true };
     setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(newNode));
@@ -1642,7 +1668,7 @@ export default function EditorPage({ user }) {
             <CompareView snapshot={compareSnap} currentNodes={nodes} currentEdges={edges} onClose={() => setCompareSnap(null)} />
           )}
           {inspectorNode && !compareSnap && (
-            <NodeInspector node={inspectorNode} onUpdate={updateNodeData} onUpdateNode={updateNode} onRenameVariable={renameVariableEverywhere} onClose={() => setInspectorNodeId(null)} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={id} nodes={nodes} />
+            <NodeInspector node={inspectorNode} onUpdate={updateNodeData} onUpdateNode={updateNode} onRenameVariable={renameVariableEverywhere} onClose={() => setInspectorNodeId(null)} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={id} nodes={nodes} edges={edges} />
           )}
         </div>
       </div>

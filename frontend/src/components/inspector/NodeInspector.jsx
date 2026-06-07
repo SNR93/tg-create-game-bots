@@ -25,7 +25,7 @@ import { getNodeMeta } from '../nodes/nodeCatalog';
 import { AchievementInspector, AchievementsViewInspector, BreakLoopInspector, CodexInspector, EditCodexInspector, EditMessageInspector, FormulaInspector, GlobalVariableInspector, HttpRequestInspector, InventoryInspector, InventoryViewInspector, InvokeCommandInspector, LocationInspector, LoopInspector, PollInspector, PromocodeInspector, PurchaseInspector, RandomInspector, RelationInspector, ReputationStatusInspector, ResetProgressInspector, ReturnInspector, StickerInspector, SubscenarioInspector, SubscriptionCheckInspector, TextInputInspector, UnlockCodexInspector } from './GameplayInspectors';
 import NodeHistoryPanel from './NodeHistoryPanel';
 
-function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placeholderVariables, botId, nodes, onRenameVariable }) {
+function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placeholderVariables, botId, nodes, edges, onRenameVariable }) {
   const noop = () => {};
   const upd = onUpdate || noop;
   return (
@@ -38,7 +38,7 @@ function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placehol
       {node.type === 'simpleMessageNode' && <SimpleMessageInspector data={node.data} onUpdate={p => upd(node.id, p)} botId={botId} />}
       {node.type === 'variableNode'      && <VariableInspector      data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables} onRenameVariable={onRenameVariable} />}
       {node.type === 'keyboardNode'      && <KeyboardInspector      data={node.data} onUpdate={p => upd(node.id, p)} botVariables={allBotVariables || botVariables} placeholderVariables={placeholderVariables} nodes={nodes} />}
-      {node.type === 'branchingNode'    && <BranchingInspector    data={node.data} onUpdate={p => upd(node.id, p)} botVariables={botVariables} />}
+      {node.type === 'branchingNode'    && <BranchingInspector    data={node.data} onUpdate={p => upd(node.id, p)} botVariables={botVariables} nodes={nodes} />}
       {node.type === 'commentNode'      && <CommentInspector      data={node.data} onUpdate={p => upd(node.id, p)} />}
       {node.type === 'mediaNode'        && <MediaInspector        data={node.data} onUpdate={p => upd(node.id, p)} botId={botId} />}
       {node.type === 'inventoryNode'    && <InventoryInspector    data={node.data} onUpdate={p => upd(node.id, p)} />}
@@ -64,7 +64,7 @@ function InspectorBody({ node, onUpdate, botVariables, allBotVariables, placehol
       {node.type === 'breakLoopNode'        && <BreakLoopInspector        data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
       {node.type === 'globalVariableNode'   && <GlobalVariableInspector   data={node.data} onUpdate={p => upd(node.id, p)} />}
       {node.type === 'codexNode'            && <CodexInspector            data={node.data} onUpdate={p => upd(node.id, p)} />}
-      {node.type === 'editCodexNode'        && <EditCodexInspector        data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
+      {node.type === 'editCodexNode'        && <EditCodexInspector        data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} edges={edges} nodeId={node.id} />}
       {node.type === 'unlockCodexNode'      && <UnlockCodexInspector      data={node.data} onUpdate={p => upd(node.id, p)} nodes={nodes} />}
       {node.type === 'reputationStatusNode' && <ReputationStatusInspector data={node.data} onUpdate={p => upd(node.id, p)} />}
       {node.type === 'purchaseNode'     && <PurchaseInspector     data={node.data} onUpdate={p => upd(node.id, p)} />}
@@ -88,7 +88,7 @@ function ComparePanel({ node, initialData, label, labelColor, botVariables, allB
   );
 }
 
-export default function NodeInspector({ node, onUpdate, onUpdateNode, onRenameVariable, onClose, botVariables, allBotVariables, placeholderVariables, botId, nodes }) {
+export default function NodeInspector({ node, onUpdate, onUpdateNode, onRenameVariable, onClose, botVariables, allBotVariables, placeholderVariables, botId, nodes, edges }) {
   const [showHistory, setShowHistory] = useState(false);
   const [compareData, setCompareData] = useState(null);
   if (!node) return null;
@@ -156,7 +156,7 @@ export default function NodeInspector({ node, onUpdate, onUpdateNode, onRenameVa
             />
           </div>
         )}
-        <InspectorBody node={node} onUpdate={onUpdate} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={botId} nodes={nodes} onRenameVariable={onRenameVariable} />
+        <InspectorBody node={node} onUpdate={onUpdate} botVariables={botVariables} allBotVariables={allBotVariables} placeholderVariables={placeholderVariables} botId={botId} nodes={nodes} edges={edges} onRenameVariable={onRenameVariable} />
         {node.type === 'groupNode' && <GroupInspector node={node} onUpdateData={p => onUpdate(node.id, p)} onUpdateStyle={style => onUpdateNode(node.id, { style: { ...node.style, ...style } })} />}
 
         {/* Variables overview */}

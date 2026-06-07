@@ -547,7 +547,11 @@ class TelegramRuntime {
 
     let transient = !!session.waiting.transient;
     session.waiting = null;
-    session.keyboardMessageId = callback.message?.message_id || session.keyboardMessageId || null;
+    const kbMsgId = callback.message?.message_id;
+    if (kbMsgId) {
+      try { await this.request('deleteMessage', { chat_id: chatId, message_id: kbMsgId }); } catch {}
+    }
+    session.keyboardMessageId = null;
     const edge = bot.edges.find(e => e.source === node.id && (e.sourceHandle === `left-${buttonId}` || e.sourceHandle === `right-${buttonId}`) && bot.nodes.some(t => t.id === e.target && t.type !== 'commentNode'));
     // If we're in transient (menu) and the button leads to a story node (not a menu-entry type),
     // break out of transient so the story runs normally and saves player position.
