@@ -756,7 +756,7 @@ class TelegramRuntime {
             session.keyboardMessageId = null;
             if (waiting) return;
             if (!session.storyResumeNodeId) {
-              await this.request('sendMessage', { chat_id: chatId, text: node.data.noSaveText || '⚠️ Нет сохранённого прогресса. Начните новую игру.' });
+              await this.request('sendMessage', { chat_id: chatId, ...telegramTextPayload(node.data.noSaveText || '⚠️ Нет сохранённого прогресса. Начните новую игру.') });
               return;
             }
             return this.execute(chatId, session.storyResumeNodeId);
@@ -1108,7 +1108,7 @@ class TelegramRuntime {
           }
           let sent = null;
           const promptText = this.interp(node.data.promptText || 'Ваш выбор:', this.templateVars(session), chatId, node.id);
-          const keyboardPayload = { chat_id: chatId, text: promptText, reply_markup: { inline_keyboard: keyboard } };
+          const keyboardPayload = { chat_id: chatId, ...telegramTextPayload(promptText), reply_markup: { inline_keyboard: keyboard } };
           if (session.keyboardMessageId) {
             try {
               sent = await this.request('editMessageText', { ...keyboardPayload, message_id: session.keyboardMessageId });
