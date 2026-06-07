@@ -9,6 +9,7 @@
 import React from 'react';
 import { Handle, Position, useEdges, useNodeId } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
+import TelegramText from './TelegramText';
 
 const TYPE_ICON = { text:'✎', photo:'🖼', video:'▶', voice:'🎤', audio:'🎵', document:'📄' };
 
@@ -41,11 +42,12 @@ export default function MessageChainNode({ data, selected }) {
         <div key={msg.id} style={s.row}>
           {msg.protected && <span style={s.lock} title="Защищённый контент">🔒</span>}
           <span style={s.mIcon}>{TYPE_ICON[msg.type] ?? '?'}</span>
-          <span style={{ ...s.mText, whiteSpace: expanded ? 'pre-wrap' : 'nowrap', wordBreak: expanded ? 'break-word' : 'normal' }}>
-            {msg.type === 'text'
-              ? (expanded ? (msg.text || <em style={{ color: '#4a5568' }}>пусто</em>) : (msg.text?.slice(0, 26) || <em style={{ color: '#4a5568' }}>пусто</em>))
-              : (msg.fileName || msg.url?.split('/').pop() || msg.type)}
-          </span>
+          {msg.type === 'text'
+            ? (msg.text
+                ? <TelegramText text={expanded ? msg.text : msg.text.slice(0, 60)} style={{ ...s.mText, whiteSpace: expanded ? 'pre-wrap' : 'nowrap', wordBreak: expanded ? 'break-word' : 'normal' }} />
+                : <em style={{ ...s.mText, color: '#4a5568' }}>пусто</em>)
+            : <span style={{ ...s.mText, whiteSpace: 'nowrap' }}>{msg.fileName || msg.url?.split('/').pop() || msg.type}</span>
+          }
           {msg.delay > 0 && <span style={s.delay}>{msg.delay}с</span>}
         </div>
       ))}

@@ -8,6 +8,7 @@
 
 import React from 'react';
 import { Handle, Position, useEdges, useNodeId } from '@xyflow/react';
+import TelegramText from './TelegramText';
 
 const ICONS = { text:'✎', photo:'🖼', video:'▶', voice:'🎤', audio:'🎵', document:'📄' };
 
@@ -18,8 +19,9 @@ export default function SimpleMessageNode({ data, selected }) {
   const leftConnected  = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue-left');
   const rightConnected = edges.some(e => e.source === nodeId && e.sourceHandle === 'continue');
   const expanded = !!data.__expanded;
-  const displayText = type === 'text'
-    ? (expanded ? (data.text || '') : (data.text?.slice(0, 32) || ''))
+  const isText = type === 'text';
+  const displayText = isText
+    ? (data.text || '')
     : (data.fileName || data.url?.split('/').pop() || type);
   return (
     <div style={{
@@ -35,9 +37,12 @@ export default function SimpleMessageNode({ data, selected }) {
       <div style={s.preview}>
         {data.protected && <span style={s.lock} title="Защищённый контент">🔒</span>}
         <span style={s.typeIcon}>{ICONS[type]}</span>
-        <span style={{ ...s.text, whiteSpace: expanded ? 'pre-wrap' : 'nowrap', wordBreak: expanded ? 'break-word' : 'normal' }}>
-          {displayText || <em style={{ color: '#4a5568' }}>пусто</em>}
-        </span>
+        {isText
+          ? (displayText
+              ? <TelegramText text={expanded ? displayText : displayText.slice(0, 80)} style={{ ...s.text, whiteSpace: expanded ? 'pre-wrap' : 'nowrap', wordBreak: expanded ? 'break-word' : 'normal' }} />
+              : <em style={{ ...s.text, color: '#4a5568' }}>пусто</em>)
+          : <span style={{ ...s.text, whiteSpace: 'nowrap' }}>{displayText}</span>
+        }
       </div>
       <div style={s.cont}>
         <Handle
